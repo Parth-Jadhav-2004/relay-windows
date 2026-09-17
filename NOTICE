@@ -1,0 +1,10 @@
+Tinycast for Windows
+Copyright (C) 2026 Tinycast Windows contributors
+
+This program is a from-scratch native Windows reimplementation of Tinycast
+for macOS (https://github.com/abue-ammar/tinycast), Copyright (C) 2026 Abue Ammar.
+
+Both are licensed under the GNU Affero General Public License, version 3.
+
+The macOS original is vendored under reference/ as a read-only specification.
+Do not copy Swift sources into this tree; reimplement from docs and invariants.

@@ -1,0 +1,26 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+artifacts/
+*.log
+*.binlog
+[Tt]est[Rr]esult*/
+*.trx
+AppPackages/
+BundleArtifacts/
+*.msix
+*.msixupload
+publish/
+.idea/
+_ReSharper*/
+Generated\ Files/
+*.DotSettings.user
+.DS_Store
+Thumbs.db
+reference/
+/palette-verify.png
+.cursor/
+

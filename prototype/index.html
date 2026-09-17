@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tinycast for Windows — UI prototype</title>
+  <style>
+    /* Throwaway prototype. Tokens from Tinycast Theme.swift. Not production. */
+    :root {
+      --xxs: 2px; --xs: 4px; --sm: 6px; --md: 8px; --lg: 10px; --xl: 12px; --xxl: 20px;
+      --r-panel: 26px; --r-row: 10px; --r-card: 10px; --r-dialog: 20px;
+      --r-menu: 16px; --r-menu-row: 10px; --r-key: 6px; --r-bar: 8px; --r-thumb: 6px;
+      --panel-w: 750px; --panel-h: 475px; --header-h: 44px; --bar-h: 52px;
+      --icon: 24px; --clip-w: 290px; --menu-w: 276px; --dialog-w: 420px;
+      --settings-w: 900px; --settings-h: 700px; --sidebar-w: 215px;
+      --note-w: 520px; --note-h: 420px;
+      --search: 20px; --enter: 180ms; --exit: 120ms; --hover: 120ms;
+      --ink: 255, 255, 255;
+      --scrim: 0, 0, 0;
+      --scrim-a: 0.40;
+      --sel: 0.10; --hov: 0.05; --sep: 0.10; --ctrl: 0.10; --bdr: 0.20;
+      --t2: 0.60; --t3: 0.40; --frost: 0.05; --card: 0.05; --card-b: 0.10;
+      --brand: 134, 59, 255;
+      --danger: 255, 69, 58;
+      --ok: 52, 199, 89;
+    }
+    html[data-appearance="light"] {
+      --ink: 0, 0, 0;
+      --scrim: 255, 255, 255;
+      --scrim-a: 0.55;
+      --sel: 0.09; --hov: 0.045; --sep: 0.12; --ctrl: 0.08; --bdr: 0.18;
+      --t2: 0.60; --t3: 0.42; --frost: 0.25; --card: 0.04; --card-b: 0.10;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body {
+      font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+      color: rgb(var(--ink));
+      user-select: none;
+    }
+    button, input { font: inherit; color: inherit; }
+    button { background: none; border: 0; padding: 0; cursor: pointer; }
+
+    /* Light desktop — transparency bugs only show over bright wallpaper */
+    .desktop {
+      height: 100%;
+      background:
+        radial-gradient(ellipse 90% 70% at 12% 8%, #9ad4ff 0%, transparent 52%),
+        radial-gradient(ellipse 70% 55% at 88% 12%, #f3c4ff 0%, transparent 48%),
+        radial-gradient(ellipse 55% 45% at 70% 88%, #b8f5d0 0%, transparent 50%),
+        radial-gradient(ellipse 40% 30% at 30% 70%, #ffe7b0 0%, transparent 50%),
+        linear-gradient(165deg, #d7ecfb 0%, #efe0f6 42%, #f7ead8 100%);
+      position: relative;
+    }
+    .desktop::after {
+      content: "";
+      position: absolute; inset: 0; z-index: 0;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.04 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      opacity: 0.28; pointer-events: none; mix-blend-mode: overlay;
+    }
+    .desktop > * { position: relative; z-index: 1; }
+
+    .taskbar {
+      position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+      height: 48px; padding: 6px 10px; display: flex; align-items: center; gap: 6px;
+      background: rgba(32, 32, 32, 0.55); color: #fff;
+      backdrop-filter: blur(40px) saturate(1.6);
+      border-radius: 14px; border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.18);
+      z-index: 5;
+    }
+    .tb-ico {
+      width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center;
+      font-size: 16px;
+    }
+    .tb-ico:hover { background: rgba(255,255,255,0.08); }
+    .tb-ico.active { background: rgba(255,255,255,0.14); }
+    .tb-ico.active::after {
+      content: ""; position: absolute; margin-top: 28px; width: 12px; height: 3px;
+      background: #7eb6ff; border-radius: 2px;
+    }
+    .tb-clock { margin-left: 8px; font-size: 12px; letter-spacing: 0.02em; opacity: 0.9; text-align: right; line-height: 1.2; padding: 0 8px; }
+    .tray-dot {
+      width: 22px; height: 22px; border-radius: 7px;
+      background: linear-gradient(145deg, rgb(var(--brand)), #3b1d8a);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.2) inset;
+    }
+
+    .surface {
+      position: absolute; left: 50%; top: 18%;
+      transform: translateX(-50%);
+      z-index: 10;
+    }
+
+    .glass-panel {
+      background: rgba(var(--scrim), var(--scrim-a));
+      backdrop-filter: blur(48px) saturate(1.55);
+      -webkit-backdrop-filter: blur(48px) saturate(1.55);
+      box-shadow:
+        0 24px 80px rgba(0,0,0,0.28),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+    html[data-appearance="light"] .glass-panel {
+      box-shadow:
+        0 24px 80px rgba(0,0,0,0.16),
+        0 0 0 1px rgba(0,0,0,0.06) inset;
+    }
+
+    .palette {
+      width: var(--panel-w); height: var(--panel-h);
+      border-radius: var(--r-panel);
+      overflow: hidden; position: relative;
+      animation: enter var(--enter) cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    .palette.compact { height: 64px; }
+    @keyframes enter { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+
+    .header {
+      position: absolute; top: 0; left: 0; right: 0; height: 64px;
+      display: flex; align-items: center; gap: var(--md);
+      padding: 10px 16px 10px 16px; z-index: 3; pointer-events: none;
+    }
+    .header > * { pointer-events: auto; }
+    .header-ico {
+      width: 22px; height: 22px; display: grid; place-items: center;
+      opacity: 0.7; flex: 0 0 22px;
+    }
+    .search-wrap { flex: 1; position: relative; min-width: 0; }
+    #q {
+      width: 100%; background: transparent; border: 0; outline: none;
+      font-size: var(--search); font-weight: 400; letter-spacing: -0.02em;
+      caret-color: rgb(var(--ink));
+    }
+    .ph {
+      position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+      font-size: var(--search); color: rgba(var(--ink), var(--t3));
+      pointer-events: none; letter-spacing: -0.02em;
+    }
+    .tab-hint {
+      display: flex; align-items: center; gap: 6px;
+      color: rgba(var(--ink), var(--t3)); font-size: 13px; white-space: nowrap;
+    }
+
+    .list {
+      position: absolute; inset: 0;
+      overflow: auto; padding: 64px 8px 60px;
+      scrollbar-width: thin; scrollbar-color: rgba(var(--ink), 0.28) transparent;
+      mask-image: linear-gradient(to bottom,
+        rgba(0,0,0,0.35) 0, #000 56px,
+        #000 calc(100% - 56px), rgba(0,0,0,0.45) 100%);
+    }
+    .palette.compact .list, .palette.compact .footer { display: none; }
+
+    .sec {
+      font-size: 13px; font-weight: 600; color: rgba(var(--ink), var(--t2));
+      padding: 12px 8px 4px; letter-spacing: 0.01em;
+    }
+    .sec.first { padding-top: 4px; }
+
+    .row {
+      display: flex; align-items: center; gap: var(--lg);
+      padding: 6px 8px; border-radius: var(--r-row); min-height: 36px;
+    }
+    .row:hover { background: rgba(var(--ink), var(--hov)); }
+    .row.sel { background: rgba(var(--ink), var(--sel)); }
+    .muted { font-size: 13px; color: rgba(var(--ink), var(--t3)); }
+    .ico {
+      width: var(--icon); height: var(--icon); border-radius: 6px; flex: 0 0 var(--icon);
+      display: grid; place-items: center; font-size: 11px; font-weight: 700;
+      color: #fff; overflow: hidden; letter-spacing: -0.02em;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset;
+    }
+    .ico svg { width: 16px; height: 16px; }
+    .ico.glyph { background: rgba(var(--ink), 0.08); color: rgba(var(--ink), 0.85); font-size: 14px; }
+
+    .k {
+      display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px;
+      border: 1px solid rgba(var(--ink), var(--bdr)); border-radius: var(--r-key);
+      font-size: 11px; color: rgba(var(--ink), var(--t2)); line-height: 1;
+    }
+    .k.fill { border: 0; background: rgba(var(--ink), var(--ctrl)); }
+    .keys { display: flex; gap: 2px; }
+
+    .card {
+      margin: 4px 8px 8px; padding: 14px 16px; border-radius: var(--r-card);
+      background: rgba(var(--ink), var(--card));
+      box-shadow: 0 0 0 1px rgba(var(--ink), var(--card-b));
+      display: grid; grid-template-columns: 1fr 28px 1fr; gap: 8px; align-items: center;
+    }
+    .card.sel { background: rgba(var(--ink), var(--sel)); }
+    .card .src { font-size: 13px; color: rgba(var(--ink), var(--t2)); }
+    .card .val { font-size: 22px; font-weight: 500; letter-spacing: -0.03em; }
+    .card .badge {
+      display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 6px;
+      background: rgba(var(--ink), var(--ctrl)); font-size: 11px; color: rgba(var(--ink), var(--t2));
+    }
+    .card .arr { opacity: 0.45; text-align: center; }
+
+    .meet {
+      display: flex; align-items: center; gap: 10px;
+      margin: 4px 8px 8px; padding: 10px 12px; border-radius: var(--r-card);
+    }
+    .meet.sel { background: rgba(var(--ink), var(--sel)); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--ok)); box-shadow: 0 0 8px rgb(var(--ok)); }
+
+    .split { display: grid; grid-template-columns: var(--clip-w) 1px 1fr; height: 100%; }
+    .hair { background: rgba(var(--ink), var(--sep)); }
+    .preview { padding: 72px 20px 60px; overflow: auto; }
+    .preview h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+    .preview p { margin: 0; color: rgba(var(--ink), var(--t2)); font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+    .swatch { width: 100%; height: 160px; border-radius: 12px; margin-bottom: 16px; }
+    .meta { margin-top: 16px; display: grid; gap: 8px; font-size: 13px; }
+    .meta div { display: flex; justify-content: space-between; color: rgba(var(--ink), var(--t2)); }
+    .meta b { color: rgb(var(--ink)); font-weight: 500; }
+
+    .emoji-grid {
+      display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; padding: 8px;
+    }
+    .em {
+      height: 56px; border-radius: 12px; display: grid; place-items: center; font-size: 28px;
+      background: rgba(var(--ink), 0.045);
+    }
+    .em:hover { outline: 1px solid rgba(var(--ink), 0.34); }
+    .em.sel { outline: 2px solid rgba(245, 230, 184, 0.92); background: rgba(var(--ink), 0.08); }
+
+    .footer {
+      position: absolute; left: 0; right: 0; bottom: 0; height: var(--bar-h);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; z-index: 3; pointer-events: none;
+    }
+    .footer > * { pointer-events: auto; }
+    .circle {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: rgba(var(--ink), var(--frost));
+      box-shadow: 0 0 0 1px rgba(var(--ink), 0.12) inset, 0 8px 20px rgba(0,0,0,0.12);
+      backdrop-filter: blur(16px);
+    }
+    .circle:hover { background: rgba(var(--ink), 0.10); }
+    .pill {
+      height: 36px; border-radius: 999px; display: flex; align-items: center; padding: 4px;
+      background: rgba(var(--ink), var(--frost));
+      box-shadow: 0 0 0 1px rgba(var(--ink), 0.12) inset, 0 8px 20px rgba(0,0,0,0.12);
+      backdrop-filter: blur(16px);
+    }
+    .pill-btn {
+      height: 28px; border-radius: 999px; padding: 0 10px;
+      display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500;
+    }
+    .pill-btn:hover { background: rgba(var(--ink), var(--hov)); }
+    .pill-split { width: 1px; height: 16px; background: rgba(var(--ink), 0.12); margin: 0 2px; }
+
+    .menu {
+      position: absolute; left: 12px; bottom: 52px; width: var(--menu-w);
+      border-radius: var(--r-menu); padding: 6px;
+      background: rgba(var(--scrim), 0.35);
+      backdrop-filter: blur(28px) saturate(1.6);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.28), 0 0 0 1px rgba(var(--ink), 0.1) inset;
+      animation: enter 140ms cubic-bezier(0.2, 0.7, 0.2, 1);
+      z-index: 6;
+    }
+    .menu-row {
+      display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--r-menu-row);
+      font-size: 15px;
+    }
+    .menu-row:hover { background: rgba(var(--ink), 0.10); }
+    .menu-row span { flex: 1; }
+    .menu-row .g { width: 20px; text-align: center; opacity: 0.7; }
+
+    /* Settings — grouped form, not the palette recipe */
+    .settings {
+      width: var(--settings-w); height: var(--settings-h); border-radius: 12px; overflow: hidden;
+      display: grid; grid-template-rows: 40px 1fr;
+      background: rgba(var(--scrim), 0.72);
+      backdrop-filter: blur(40px);
+      box-shadow: 0 30px 90px rgba(0,0,0,0.28);
+      animation: enter var(--enter) cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    .titlebar {
+      display: flex; align-items: center; gap: 8px; padding: 0 14px;
+      background: rgba(var(--ink), 0.04); font-size: 13px;
+    }
+    .lights { display: flex; gap: 7px; margin-right: 8px; }
+    .lights i { width: 12px; height: 12px; border-radius: 50%; background: rgba(var(--ink), 0.18); display: block; }
+    .split-set { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; }
+    .side { padding: 10px; overflow: auto; border-right: 1px solid rgba(var(--ink), 0.08); }
+    .side-search {
+      height: 28px; border-radius: 999px; padding: 0 10px; width: 100%;
+      background: rgba(var(--ink), 0.08); border: 0; outline: none; font-size: 13px; margin-bottom: 8px;
+    }
+    .nav {
+      display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px;
+      font-size: 13px; color: rgba(var(--ink), 0.88);
+    }
+    .nav:hover { background: rgba(var(--ink), 0.06); }
+    .nav.on { background: rgba(var(--ink), 0.10); }
+    .detail { padding: 18px 28px 32px; overflow: auto; }
+    .detail h1 { font-size: 22px; font-weight: 650; margin: 0 0 16px; letter-spacing: -0.03em; }
+    .group {
+      background: rgba(var(--ink), var(--card));
+      border: 1px solid rgba(var(--ink), var(--card-b));
+      border-radius: 12px; overflow: hidden; margin-bottom: 18px;
+    }
+    .grow {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 12px 14px; font-size: 14px;
+      border-top: 1px solid rgba(var(--ink), var(--card-b));
+    }
+    .grow:first-child { border-top: 0; }
+    .grow small { display: block; color: rgba(var(--ink), var(--t3)); font-size: 12px; margin-top: 2px; }
+    .toggle {
+      width: 36px; height: 20px; border-radius: 99px; background: rgba(var(--ink), 0.18); position: relative;
+    }
+    .toggle.on { background: rgb(var(--brand)); }
+    .toggle i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 120ms; }
+    .toggle.on i { left: 18px; }
+    .rec {
+      width: 120px; height: 28px; border-radius: 6px; border: 1px solid rgba(var(--ink), var(--bdr));
+      display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px;
+    }
+
+    .notes {
+      width: var(--note-w); height: var(--note-h); border-radius: var(--r-panel); overflow: hidden;
+      display: flex; flex-direction: column;
+      animation: enter var(--enter) cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    .notes-bar {
+      height: 52px; display: flex; align-items: center; justify-content: center; position: relative;
+      font-weight: 600; font-size: 14px;
+    }
+    .notes-actions {
+      position: absolute; right: 12px; top: 8px; height: 36px;
+      display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px;
+      background: rgba(var(--ink), var(--frost));
+      box-shadow: 0 0 0 1px rgba(var(--ink), 0.12) inset;
+    }
+    .notes-actions button { width: 28px; height: 28px; border-radius: 99px; opacity: 0.75; }
+    .notes-actions button:hover { background: rgba(var(--ink), var(--hov)); }
+    .notes-ed {
+      flex: 1; padding: 6px 16px 16px; background: transparent; border: 0; outline: none;
+      resize: none; color: rgba(var(--ink), 0.9); font-size: 15px; line-height: 1.5;
+      font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    }
+    .notes-foot { height: 28px; padding: 0 16px; font-size: 12px; color: rgba(var(--ink), var(--t3)); }
+
+    .dialog {
+      width: var(--dialog-w); border-radius: var(--r-dialog); padding: 20px;
+      animation: enter var(--enter) cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    .dialog-top { display: flex; gap: 12px; }
+    .d-ico { width: 32px; height: 32px; font-size: 22px; }
+    .d-ico.danger { color: rgb(var(--danger)); }
+    .dialog h2 { margin: 0 0 6px; font-size: 17px; }
+    .dialog p { margin: 0; color: rgba(var(--ink), var(--t2)); font-size: 13px; line-height: 1.4; }
+    .d-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .d-btn {
+      height: 28px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 500;
+      background: rgba(var(--ink), var(--frost));
+      box-shadow: 0 0 0 1px rgba(var(--ink), 0.12) inset;
+    }
+    .d-btn:hover { background: rgba(var(--ink), var(--hov)); }
+    .d-btn.cancel { color: rgba(var(--ink), var(--t2)); }
+
+    .hud {
+      position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
+      height: 36px; padding: 0 14px; border-radius: 999px;
+      display: flex; align-items: center; gap: 8px; font-size: 13px;
+      background: rgba(var(--scrim), var(--scrim-a));
+      backdrop-filter: blur(32px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      animation: enter var(--enter) cubic-bezier(0.2, 0.7, 0.2, 1);
+      z-index: 20;
+    }
+    .hud .ok { color: rgb(var(--ok)); }
+
+    .vol {
+      position: absolute; left: 50%; top: 12%; transform: translateX(-50%);
+      width: 200px; height: 100px; border-radius: var(--r-dialog); padding: 20px 12px;
+      display: flex; align-items: center; gap: 10px;
+      z-index: 20;
+    }
+    .track { flex: 1; height: 6px; border-radius: 99px; background: rgba(var(--ink), var(--ctrl)); }
+    .track i { display: block; height: 100%; width: 62%; border-radius: 99px; background: rgba(var(--ink), 0.85); }
+    .pct { width: 38px; font-variant-numeric: tabular-nums; font-size: 13px; color: rgba(var(--ink), var(--t2)); }
+
+    .hidden { display: none !important; }
+
+    /* Prototype chrome — not part of the product */
+    .proto {
+      position: fixed; left: 16px; bottom: 16px; transform: none;
+      z-index: 50; display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 999px;
+      background: #111; color: #fff; font-size: 12px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+      font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    }
+    .proto button {
+      width: 28px; height: 28px; border-radius: 50%; background: #2a2a2a; color: #fff;
+    }
+    .proto button.chip { width: auto; border-radius: 99px; }
+    .proto .lab { min-width: 210px; text-align: center; }
+    .proto .lab b { font-weight: 650; }
+    .proto .lab span { opacity: 0.6; display: block; font-size: 10px; }
+    .proto .chip {
+      height: 28px; padding: 0 10px; border-radius: 99px; background: #2a2a2a; font-size: 11px;
+    }
+    .state {
+      position: fixed; top: 10px; left: 10px; right: auto; z-index: 50;
+      background: rgba(0,0,0,0.72); color: #d8d8d8; font: 11px/1.45 ui-monospace, Consolas, monospace;
+      padding: 10px 12px; border-radius: 10px; max-width: 240px;
+    }
+    .state b { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="desktop" id="desktop">
+    <div class="surface" id="stage"></div>
+    <div class="hud hidden" id="hud"><span id="hudMsg">Copied to Chrome</span><span class="ok">●</span></div>
+    <div class="taskbar">
+      <div class="tb-ico">⊞</div>
+      <div class="tb-ico">🔍</div>
+      <div class="tb-ico">🗂️</div>
+      <div class="tb-ico">🌐</div>
+      <div class="tb-ico active">💻</div>
+      <div class="tray-dot" title="Tinycast"></div>
+      <div class="tb-clock" id="clock"></div>
+    </div>
+  </div>
+
+  <div class="state" id="state"></div>
+  <div class="proto">
+    <button id="prev" aria-label="Previous scene">‹</button>
+    <div class="lab"><b id="sceneName">A · Launcher</b><span>prototype chrome · not in the app</span></div>
+    <button id="next" aria-label="Next scene">›</button>
+    <button class="chip" id="appear">Dark</button>
+  </div>
+
+  <script>
+    /* Question: how should Tinycast-for-Windows look? Six product surfaces, one token set. */
+    const SCENES = [
+      { id: "launcher", name: "A · Launcher" },
+      { id: "clipboard", name: "B · Clipboard" },
+      { id: "calculator", name: "C · Calculator" },
+      { id: "emoji", name: "D · Emoji" },
+      { id: "settings", name: "E · Settings" },
+      { id: "notes", name: "F · Notes + dialog" },
+    ];
+
+    const APPS = [
+      { t: "Cursor", k: "favorite", c: "#0d0d0d", g: "C", hot: ["Alt","C"] },
+      { t: "Spotify", k: "favorite", c: "#1DB954", g: "♪" },
+      { t: "Google Chrome", k: "favorite", c: "#4285F4", g: "G", hot: ["Ctrl","Shift","C"] },
+      { t: "Visual Studio Code", k: "app", c: "#0078D4", g: "VS" },
+      { t: "Windows Terminal", k: "app", c: "#222", g: ">_" },
+      { t: "Figma", k: "app", c: "#F24E1E", g: "F" },
+      { t: "Notion", k: "app", c: "#111", g: "N" },
+      { t: "Slack", k: "app", c: "#611f69", g: "S" },
+      { t: "Discord", k: "app", c: "#5865F2", g: "D" },
+      { t: "Steam", k: "app", c: "#1b2838", g: "St" },
+      { t: "File Explorer", k: "app", c: "#FFB900", g: "Ex" },
+      { t: "Notepad", k: "app", c: "#2b579a", g: "Np" },
+      { t: "Lock Screen", k: "system", glyph: true, g: "🔒" },
+      { t: "Sleep", k: "system", glyph: true, g: "☾" },
+      { t: "Empty Recycle Bin", k: "system", glyph: true, g: "🗑" },
+      { t: "Toggle Bluetooth", k: "system", glyph: true, g: "⬡" },
+      { t: "Clipboard History", k: "command", glyph: true, g: "📋", hot: ["Alt","V"] },
+      { t: "Search Files", k: "command", glyph: true, g: "📄" },
+      { t: "Emoji", k: "command", glyph: true, g: "☺" },
+      { t: "Show Notes", k: "command", glyph: true, g: "✎" },
+    ];
+
+    const CLIPS = [
+      { kind: "color", title: "#7C3AED", body: "Brand violet", color: "#7C3AED", pin: true, meta: "Pinned" },
+      { kind: "text", title: "git push -u origin HEAD", body: "git push -u origin HEAD\n# first publish of tinycast-windows", meta: "Today · 4:12 PM" },
+      { kind: "text", title: "https://github.com/abue-ammar/tinycast", body: "https://github.com/abue-ammar/tinycast", meta: "Today · 3:41 PM" },
+      { kind: "image", title: "Screenshot 2026-09-16", body: "PNG · 1920×1080", meta: "Today · 2:08 PM" },
+      { kind: "file", title: "Tinycast.sln", body: "D:\\tinycast-windows\\Tinycast.sln", meta: "Yesterday" },
+      { kind: "text", title: "Alt+Space summons the palette", body: "One shortcut, everything you reach for all day.", meta: "Yesterday" },
+    ];
+
+    const EMOJI = ["😀","😄","😉","😍","🤔","😎","😭","🙌","🔥","✨","💜","✅","❌","⭐","📎","🧠","🖥️","⌨️","📁","🔍","🧮","📋","🗓️","📷","🎵","🌙","🔒","⚡","🧩","🛠️","📝","💡"];
+
+    const state = {
+      scene: new URLSearchParams(location.search).get("scene") || "launcher",
+      appearance: "dark",
+      query: "",
+      sel: 0,
+      menu: false,
+      settingsPane: "General",
+    };
+
+    const svg = {
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
+      back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
+      dots: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18" r="1.6"/></svg>',
+    };
+
+    function keys(list) {
+      return `<span class="keys">${list.map(k => `<span class="k">${k}</span>`).join("")}</span>`;
+    }
+    function icon(item) {
+      if (item.glyph) return `<div class="ico glyph">${item.g}</div>`;
+      return `<div class="ico" style="background:${item.c}">${item.g}</div>`;
+    }
+    function fuzzy(q, items) {
+      if (!q) return items;
+      const n = q.toLowerCase();
+      return items.filter(i => i.t.toLowerCase().includes(n) || i.k.includes(n));
+    }
+    function grouped(items) {
+      const order = ["favorite", "app", "system", "command"];
+      const names = { favorite: "Favorites", app: "Applications", system: "System", command: "Commands" };
+      return order.map(k => ({ k, name: names[k], items: items.filter(i => i.k === k) })).filter(g => g.items.length);
+    }
+    function calc(q) {
+      const canned = [
+        { re: /560\s*km.*mi/i, src: "560 km", dst: "347.9678677", sb: "Kilometres", db: "Miles" },
+        { re: /1\s*euro.*usd|€1/i, src: "€1.00", dst: "$1.17", sb: "Euro", db: "US Dollar" },
+        { re: /hrs till 9|hours till 9/i, src: "4:18 PM", dst: "9:00 AM", sb: "now", db: "tomorrow" },
+        { re: /10kg\s*\+\s*500g/i, src: "10 kg + 500 g", dst: "10.5", sb: "Expression", db: "Kilograms" },
+      ];
+      for (const c of canned) if (c.re.test(q)) return c;
+      if (/^[\d\s+\-*/().]+$/.test(q.trim()) && q.trim()) {
+        try {
+          const v = Function(`"use strict"; return (${q})`)();
+          if (typeof v === "number" && isFinite(v)) return { src: q.trim(), dst: String(v), sb: "Expression", db: "Result" };
+        } catch {}
+      }
+      return null;
+    }
+
+    function renderPalette(mode) {
+      const back = mode !== "launcher";
+      const ph = {
+        launcher: "Search apps, commands, clipboard…",
+        clipboard: "Search clipboard",
+        calculator: "Try 560 km to mi",
+        emoji: "Search emoji",
+      }[mode];
+      const hint = mode === "launcher" ? `<div class="tab-hint">AI Chat ${keys(["Tab"])}</div>` : "";
+      return `
+        <div class="palette glass-panel" id="palette">
+          <div class="header">
+            <div class="header-ico">${back ? svg.back : svg.search}</div>
+            <div class="search-wrap">
+              <input id="q" spellcheck="false" autocomplete="off" value="${state.query.replace(/"/g,"&quot;")}" />
+              <div class="ph ${state.query ? "hidden" : ""}" id="ph">${ph}</div>
+            </div>
+            ${hint}
+          </div>
+          <div class="list" id="list">${renderBody(mode)}</div>
+          <div class="footer">
+            <button class="circle" id="menuBtn" title="Tinycast">${svg.dots}</button>
+            <div class="pill">
+              <button class="pill-btn" id="act">${actionLabel(mode)} ${keys(["Enter"])}</button>
+              <div class="pill-split"></div>
+              <button class="pill-btn" id="actMenu">Actions ${keys(["Ctrl","K"])}</button>
+            </div>
+          </div>
+          <div class="menu hidden" id="menu">
+            <div class="menu-row"><span class="g">⚙</span><span>Settings</span>${keys(["Ctrl",","])}</div>
+            <div class="menu-row"><span class="g">?</span><span>Support Tinycast</span></div>
+            <div class="menu-row"><span class="g">⎋</span><span>Quit Tinycast</span></div>
+          </div>
+        </div>`;
+    }
+
+    function actionLabel(mode) {
+      return { launcher: "Open", clipboard: "Paste", calculator: "Copy Result", emoji: "Paste" }[mode] || "Open";
+    }
+
+    function renderBody(mode) {
+      if (mode === "clipboard") return renderClipboard();
+      if (mode === "emoji") return renderEmoji();
+      if (mode === "calculator") {
+        const c = calc(state.query || "560 km to mi");
+        return renderCalc(c, true) + renderLauncherList(fuzzy(state.query, APPS));
+      }
+      const c = calc(state.query);
+      const items = fuzzy(state.query, APPS);
+      const empty = !state.query;
+      let html = "";
+      if (c) html += renderCalc(c, state.sel === 0);
+      else if (empty) html += `<div class="meet ${state.sel===0?"sel":""}" data-i="0"><span class="dot"></span><div><div class="title">Standup</div><div class="muted">in 4 min · Google Meet</div></div></div>`;
+      html += renderLauncherList(items, c || empty ? 1 : 0);
+      return html;
+    }
+
+    function renderCalc(c, selected) {
+      if (!c) return "";
+      return `<div class="card ${selected?"sel":""}" data-i="0">
+        <div><div class="src">${c.src}</div><div class="val">${c.src}</div><span class="badge">${c.sb}</span></div>
+        <div class="arr">→</div>
+        <div><div class="src">Result</div><div class="val">${c.dst}</div><span class="badge">${c.db}</span></div>
+      </div>`;
+    }
+
+    function renderLauncherList(items, offset = 0) {
+      if (state.query) {
+        let html = `<div class="sec ${offset?"":"first"}">Results</div>`;
+        items.forEach((item, i) => { html += rowHtml(item, i + offset); });
+        if (!items.length && !calc(state.query)) html += `<div class="sec">No results</div>`;
+        return html;
+      }
+      let html = "";
+      let i = offset;
+      grouped(items).forEach((g, gi) => {
+        html += `<div class="sec ${gi===0 && offset===0 ? "first":""}">${g.name}</div>`;
+        g.items.forEach(item => { html += rowHtml(item, i++); });
+      });
+      return html;
+    }
+
+    function rowHtml(item, i) {
+      const hot = item.hot ? keys(item.hot) : "";
+      return `<div class="row ${state.sel===i?"sel":""}" data-i="${i}">${icon(item)}<div class="title">${item.t}</div>${hot}</div>`;
+    }
+
+    function renderClipboard() {
+      const q = state.query.toLowerCase();
+      const items = CLIPS.filter(c => !q || c.title.toLowerCase().includes(q) || c.body.toLowerCase().includes(q));
+      const cur = items[Math.min(state.sel, Math.max(0, items.length-1))] || items[0];
+      const left = items.map((c,i) => `<div class="row ${i===state.sel?"sel":""}" data-i="${i}"><div class="ico glyph">${c.kind==="color"?"◼":c.kind==="image"?"🖼":c.kind==="file"?"📄":"T"}</div><div class="title">${c.title}</div>${c.pin?'<span class="k fill">📌</span>':""}</div>`).join("");
+      let preview = "";
+      if (cur) {
+        if (cur.kind === "color") preview = `<div class="swatch" style="background:${cur.color}"></div><h3>${cur.title}</h3><div class="meta"><div>Hex<b>${cur.color}</b></div><div>RGB<b>124, 58, 237</b></div></div>`;
+        else if (cur.kind === "image") preview = `<div class="swatch" style="background:linear-gradient(135deg,#9ad4ff,#f3c4ff)"></div><h3>${cur.title}</h3><p>${cur.body}</p>`;
+        else preview = `<h3>${cur.title}</h3><p>${cur.body}</p><div class="meta"><div>When<b>${cur.meta}</b></div></div>`;
+      }
+      return `<div class="split"><div>${left}</div><div class="hair"></div><div class="preview">${preview}</div></div>`;
+    }
+
+    function renderEmoji() {
+      return `<div class="sec first">Frequently Used</div><div class="emoji-grid">${
+        EMOJI.map((e,i) => `<div class="em ${i===state.sel?"sel":""}" data-i="${i}">${e}</div>`).join("")
+      }</div>`;
+    }
+
+    function renderSettings() {
+      const panes = ["General","Permissions","Applications","Shortcuts","Clipboard","Window Management","Snippets","AI","Backup"];
+      const nav = panes.map(p => `<button class="nav ${state.settingsPane===p?"on":""}" data-pane="${p}">${p}</button>`).join("");
+      return `<div class="settings glass-panel">
+        <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>Tinycast Settings</div>
+        <div class="split-set">
+          <div class="side">
+            <input class="side-search" placeholder="Search" />
+            ${nav}
+          </div>
+          <div class="detail">
+            <h1>General</h1>
+            <div class="group">
+              <div class="grow"><div>Summon Tinycast<small>Global shortcut from anywhere</small></div><div class="rec">${keys(["Alt","Space"])}</div></div>
+              <div class="grow"><div>Launch at login</div><div class="toggle on"><i></i></div></div>
+              <div class="grow"><div>Show in tray</div><div class="toggle on"><i></i></div></div>
+              <div class="grow"><div>Appearance<small>Dark is the design. Light inverts the ink.</small></div><div class="rec">${state.appearance}</div></div>
+            </div>
+            <div class="group">
+              <div class="grow"><div>AI Chat<small>Off out of the box. No history file until you turn it on.</small></div><div class="toggle"><i></i></div></div>
+              <div class="grow"><div>Snippets<small>The only feature that watches typing.</small></div><div class="toggle"><i></i></div></div>
+              <div class="grow"><div>Calendar<small>Explains what it reads before Windows asks.</small></div><div class="toggle"><i></i></div></div>
+              <div class="grow"><div>Clipboard history<small>On by default. Kept on this PC.</small></div><div class="toggle on"><i></i></div></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderNotes() {
+      return `
+        <div style="display:flex;flex-direction:column;gap:24px;align-items:center">
+          <div class="notes glass-panel">
+            <div class="notes-bar">Sunday standup
+              <div class="notes-actions"><button>+</button><button>☰</button><button>📁</button></div>
+            </div>
+            <textarea class="notes-ed"># Sunday, 13 September
+
+Attendees:
+- Parth
+- Design
+
+- [ ] Port palette chrome
+- [ ] Win32 hotkeys
+- [ ] Clipboard SQLite
+</textarea>
+            <div class="notes-foot">148 characters</div>
+          </div>
+          <div class="dialog glass-panel">
+            <div class="dialog-top">
+              <div class="d-ico danger">⏻</div>
+              <div>
+                <h2>Shut down your PC?</h2>
+                <p>Applications with unsaved changes may ask you to save.</p>
+              </div>
+            </div>
+            <div class="d-btns">
+              <button class="d-btn cancel">Cancel</button>
+              <button class="d-btn">Shut Down</button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function render() {
+      const stage = document.getElementById("stage");
+      const hud = document.getElementById("hud");
+      hud.classList.toggle("hidden", state.scene !== "clipboard");
+      if (state.scene === "settings") stage.innerHTML = renderSettings();
+      else if (state.scene === "notes") stage.innerHTML = renderNotes();
+      else stage.innerHTML = renderPalette(state.scene === "calculator" ? "calculator" : state.scene);
+      document.getElementById("sceneName").textContent = SCENES.find(s => s.id === state.scene).name;
+      dump();
+      bind();
+      const q = document.getElementById("q");
+      if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    }
+
+    function dump() {
+      document.getElementById("state").innerHTML =
+        `<b>prototype state</b><br>scene ${state.scene}<br>appearance ${state.appearance}<br>query “${state.query}”<br>selection ${state.sel}<br>menu ${state.menu}`;
+    }
+
+    function bind() {
+      const q = document.getElementById("q");
+      if (q) {
+        q.addEventListener("input", e => {
+          state.query = e.target.value;
+          state.sel = 0;
+          document.getElementById("ph").classList.toggle("hidden", !!state.query);
+          document.getElementById("list").innerHTML = renderBody(state.scene === "calculator" ? "calculator" : state.scene);
+          dump();
+        });
+      }
+      document.querySelectorAll("[data-i]").forEach(el => {
+        el.addEventListener("mouseenter", () => {
+          state.sel = Number(el.dataset.i);
+          document.querySelectorAll("[data-i]").forEach(n => n.classList.toggle("sel", n === el));
+          dump();
+        });
+        el.addEventListener("click", () => activate());
+      });
+      const menuBtn = document.getElementById("menuBtn");
+      if (menuBtn) menuBtn.addEventListener("click", () => {
+        state.menu = !state.menu;
+        document.getElementById("menu").classList.toggle("hidden", !state.menu);
+        dump();
+      });
+      document.querySelectorAll("[data-pane]").forEach(el => {
+        el.addEventListener("click", () => { state.settingsPane = el.dataset.pane; render(); });
+      });
+      document.querySelectorAll(".toggle").forEach(el => {
+        el.addEventListener("click", () => el.classList.toggle("on"));
+      });
+      document.getElementById("act")?.addEventListener("click", activate);
+    }
+
+    function maxSel() {
+      return document.querySelectorAll("[data-i]").length - 1;
+    }
+    function activate() {
+      if (state.scene === "clipboard") {
+        document.getElementById("hud").classList.remove("hidden");
+        document.getElementById("hudMsg").textContent = "Pasted into Chrome";
+        setTimeout(() => document.getElementById("hud").classList.add("hidden"), 2400);
+      }
+    }
+
+    function setScene(id) {
+      state.scene = id;
+      state.query = id === "calculator" ? "560 km to mi" : "";
+      state.sel = 0;
+      state.menu = false;
+      const url = new URL(location.href);
+      url.searchParams.set("scene", id);
+      history.replaceState(null, "", url);
+      render();
+    }
+
+    document.getElementById("prev").onclick = () => {
+      const i = SCENES.findIndex(s => s.id === state.scene);
+      setScene(SCENES[(i + SCENES.length - 1) % SCENES.length].id);
+    };
+    document.getElementById("next").onclick = () => {
+      const i = SCENES.findIndex(s => s.id === state.scene);
+      setScene(SCENES[(i + 1) % SCENES.length].id);
+    };
+    document.getElementById("appear").onclick = () => {
+      state.appearance = state.appearance === "dark" ? "light" : "dark";
+      document.documentElement.dataset.appearance = state.appearance;
+      document.getElementById("appear").textContent = state.appearance[0].toUpperCase() + state.appearance.slice(1);
+      dump();
+    };
+
+    document.addEventListener("keydown", e => {
+      const inField = e.target.matches("input, textarea");
+      if (!inField && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        document.getElementById(e.key === "ArrowLeft" ? "prev" : "next").click();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (state.menu) { state.menu = false; document.getElementById("menu")?.classList.add("hidden"); return; }
+        if (state.query) { state.query = ""; state.sel = 0; render(); return; }
+      }
+      if (e.key === "Tab" && (state.scene === "launcher" || state.scene === "clipboard")) {
+        e.preventDefault();
+        setScene(state.scene === "launcher" ? "clipboard" : "launcher");
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (["launcher","clipboard","calculator","emoji"].includes(state.scene)) {
+          e.preventDefault();
+          const max = maxSel();
+          state.sel = e.key === "ArrowDown" ? Math.min(max, state.sel + 1) : Math.max(0, state.sel - 1);
+          document.querySelectorAll("[data-i]").forEach(n => n.classList.toggle("sel", Number(n.dataset.i) === state.sel));
+          document.querySelector(`[data-i="${state.sel}"]`)?.scrollIntoView({ block: "nearest" });
+          dump();
+        }
+      }
+      if (e.key === "Enter") activate();
+      if (e.key.toLowerCase() === "k" && e.ctrlKey) {
+        e.preventDefault();
+        document.getElementById("menuBtn")?.click();
+      }
+    });
+
+    function tick() {
+      const d = new Date();
+      document.getElementById("clock").innerHTML =
+        d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "<br>" +
+        d.toLocaleDateString([], { month: "numeric", day: "numeric", year: "numeric" });
+    }
+    tick(); setInterval(tick, 10000);
+    document.documentElement.dataset.appearance = "dark";
+    if (!SCENES.some(s => s.id === state.scene)) state.scene = "launcher";
+    render();
+  </script>
+</body>
+</html>
