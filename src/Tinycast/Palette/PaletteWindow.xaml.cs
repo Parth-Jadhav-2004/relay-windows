@@ -338,7 +338,7 @@ public sealed partial class PaletteWindow : Window
     static string EmptyBodyFor(PaletteMode mode) => mode switch
     {
         PaletteMode.Clipboard => "Copy something. Pins stay at the top.",
-        PaletteMode.FileSearch => "Type a drive letter such as D, then Enter to browse.",
+        PaletteMode.FileSearch => "Type a file or folder name. Results update as you type.",
         PaletteMode.AiChat => "AI is off until you add a key in Settings.",
         PaletteMode.Schedule => "Turn on Calendar in Settings to list events.",
         _ => "Try another name, or open Settings from the tray.",

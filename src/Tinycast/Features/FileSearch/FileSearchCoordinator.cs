@@ -95,6 +95,28 @@ public sealed class FileSearchCoordinator
         return BrowseRows(query, ignore);
     }
 
+    public IReadOnlyList<PaletteRow> LiveRows(string query)
+    {
+        if (!_core.Settings.FileSearchEnabled)
+            return [];
+        var trimmed = query.Trim();
+        if (trimmed.Length < 2 || FileBrowse.IsVolumeQuery(trimmed))
+            return [];
+        if (LooksLikePath(trimmed) is { } existing)
+            return [ToRow(existing, "Files")];
+
+        var policy = FileSearchPolicy.Resolve(
+            _core.Settings.FileSearchScopes,
+            _core.Settings.FileSearchIgnorePatterns,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            HomeChildren);
+        return SearchRows(trimmed, policy.Ignore, [], policy.Roots, wholeCatalog: true)
+            .Where(r => r.Id.StartsWith("fs:", StringComparison.Ordinal) && !r.Id.StartsWith("fs:vol:", StringComparison.Ordinal))
+            .Select(r => r with { Section = "Files" })
+            .Take(FileSearchQuery.LauncherCap)
+            .ToList();
+    }
+
     IReadOnlyList<PaletteRow> RootRows(string query, FileSearchIgnoreList ignore, IReadOnlyList<string> scopes)
     {
         var rows = new List<PaletteRow>();
@@ -148,53 +170,49 @@ public sealed class FileSearchCoordinator
         string query, FileSearchIgnoreList ignore, List<PaletteRow> leading, IReadOnlyList<string> scopes, bool wholeCatalog)
     {
         var searchKey = (_root ?? "") + "\0" + query + "\0" + (wholeCatalog ? "1" : "0");
-        if (searchKey == _searchQuery)
+        if (searchKey != _searchQuery)
         {
-            if (_searching)
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
+            var token = _cts.Token;
+            var gen = Interlocked.Increment(ref _generation);
+            _searchRows = _searchRows.Where(r => FileSearchQuery.Matches(r.Title, query)).ToList();
+            _searchQuery = searchKey;
+            _searching = true;
+            var searchScopes = scopes;
+            var filter = _filter;
+            _ = Task.Run(async () =>
             {
-                leading.Add(Hint("file-searching", "Searching…", "Looking through your folders", "\uE721"));
-                return leading;
-            }
+                IReadOnlyList<PaletteRow> rows = [];
+                try
+                {
+                    await Task.Delay(FileSearchQuery.DebounceMs, token);
+                    rows = FileSearchService.Search(query, searchScopes, ignore, filter, token, wholeCatalog)
+                        .Select(f => ToRow(f, "Results"))
+                        .ToList();
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception) { }
 
-            leading.AddRange(_searchRows);
-            if (_searchRows.Count == 0)
-                leading.Add(Hint("file-empty", _filter.EmptyMessage(), _root is null ? "Try another name or a drive letter" : "Try another name, or go up a level", "\uE721"));
-            return leading;
+                if (token.IsCancellationRequested || gen != _generation)
+                    return;
+                _core.PaletteWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (gen != _generation)
+                        return;
+                    _searchRows = rows;
+                    _searching = false;
+                    _core.Palette.Notify();
+                });
+            }, token);
         }
 
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = new CancellationTokenSource();
-        var token = _cts.Token;
-        var gen = Interlocked.Increment(ref _generation);
-        _searchQuery = searchKey;
-        _searching = true;
-        _searchRows = [];
-        var searchScopes = scopes;
-        _ = Task.Run(() =>
-        {
-            IReadOnlyList<PaletteRow> rows = [];
-            try
-            {
-                rows = FileSearchService.Search(query, searchScopes, ignore, _filter, token, wholeCatalog)
-                    .Select(f => ToRow(f, "Results"))
-                    .ToList();
-            }
-            catch (OperationCanceledException) { return; }
-            catch (Exception) { }
-
-            if (token.IsCancellationRequested || gen != _generation)
-                return;
-            _core.PaletteWindow?.DispatcherQueue.TryEnqueue(() =>
-            {
-                if (gen != _generation)
-                    return;
-                _searchRows = rows;
-                _searching = false;
-                _core.Palette.Notify();
-            });
-        }, token);
-        leading.Add(Hint("file-searching", "Searching…", "Looking through your folders", "\uE721"));
+        leading.AddRange(_searchRows);
+        if (_searching && _searchRows.Count == 0)
+            leading.Add(Hint("file-searching", "Searching…", "Results update as you type", "\uE721"));
+        else if (!_searching && _searchRows.Count == 0)
+            leading.Add(Hint("file-empty", _filter.EmptyMessage(), _root is null ? "Try another name or a drive letter" : "Try another name, or go up a level", "\uE721"));
         return leading;
     }
 
@@ -222,9 +240,12 @@ public sealed class FileSearchCoordinator
 
         if (kind is "dir" or "vol")
         {
-            if (reveal)
+            if (reveal || _core.Palette.Mode != PaletteMode.FileSearch)
             {
-                FileSearchService.Reveal(path);
+                if (reveal)
+                    FileSearchService.Reveal(path);
+                else
+                    ProcessLauncher.Open(path);
                 _core.PaletteCoordinator.HidePalette(restoreFocus: false);
                 return true;
             }

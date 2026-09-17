@@ -228,6 +228,8 @@ public static class FileSearchQuery
     public const int HardCap = 200;
     public const int RecentLimit = 20;
     public const int WalkMaxDepth = 32;
+    public const int DebounceMs = 120;
+    public const int LauncherCap = 8;
 
     public static IReadOnlyList<string> Terms(string query) =>
         query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

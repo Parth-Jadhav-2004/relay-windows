@@ -205,7 +205,15 @@ public sealed class LauncherCoordinator
                 PrimaryAction: "Open"));
         }
 
-        foreach (var entry in ranked.Take(40))
+        foreach (var entry in ranked.Take(8))
+            rows.Add(ToRow(entry, SectionFor(entry.Kind)));
+        if (_core.Settings.FileSearchEnabled)
+        {
+            foreach (var file in _core.FileSearchCoordinator.LiveRows(query))
+                rows.Add(file);
+        }
+
+        foreach (var entry in ranked.Skip(8).Take(32))
             rows.Add(ToRow(entry, SectionFor(entry.Kind)));
         foreach (var fallback in FallbackRows(query))
             rows.Add(fallback);
