@@ -110,30 +110,59 @@ internal static class UpdatesClient
         var dest = Path.GetDirectoryName(Environment.ProcessPath);
         if (string.IsNullOrWhiteSpace(dest))
             throw new InvalidOperationException("Cannot locate the install folder.");
+
+        dest = dest.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        payloadDir = Path.GetFullPath(payloadDir)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var exe = Path.Combine(dest, "Tinycast.exe");
-        var bat = Path.Combine(AppPaths.UpdatesDir, "apply.cmd");
         Directory.CreateDirectory(AppPaths.UpdatesDir);
-        File.WriteAllText(bat, """
+        var bat = Path.Combine(AppPaths.UpdatesDir, "apply.cmd");
+        var log = Path.Combine(AppPaths.UpdatesDir, "apply.log");
+        var src = CmdLiteral(payloadDir);
+        var dst = CmdLiteral(dest);
+        var exeLit = CmdLiteral(exe);
+        var logLit = CmdLiteral(log);
+        File.WriteAllText(bat, $"""
             @echo off
-            setlocal
-            set "SRC=%~1"
-            set "DST=%~2"
-            set "EXE=%~3"
+            setlocal EnableExtensions
+            set "SRC={src}"
+            set "DST={dst}"
+            set "EXE={exeLit}"
+            >"{logLit}" echo apply %DATE% %TIME%
+            >>"{logLit}" echo SRC=%SRC%
+            >>"{logLit}" echo DST=%DST%
+            >>"{logLit}" echo EXE=%EXE%
+            if not exist "%SRC%\Tinycast.exe" (
+              >>"{logLit}" echo missing payload
+              exit /b 1
+            )
             :wait
-            timeout /t 1 /nobreak >nul
-            tasklist /FI "IMAGENAME eq Tinycast.exe" | findstr /I "Tinycast.exe" >nul
+            ping -n 2 127.0.0.1 >nul
+            tasklist /FI "IMAGENAME eq Tinycast.exe" | findstr /I /C:"Tinycast.exe" >nul
             if not errorlevel 1 goto wait
             robocopy "%SRC%" "%DST%" /E /IS /IT /R:4 /W:1 /NFL /NDL /NJH /NJS
-            start "" "%EXE%"
+            >>"{logLit}" echo robocopy=%ERRORLEVEL%
+            if not exist "%EXE%" (
+              >>"{logLit}" echo missing exe
+              exit /b 1
+            )
+            start "" /D "%DST%" "%EXE%"
+            exit /b 0
             """);
+
         Process.Start(new ProcessStartInfo
         {
             FileName = "cmd.exe",
-            Arguments = "/c start \"\" /min \"" + bat + "\" \"" + payloadDir + "\" \"" + dest + "\" \"" + exe + "\"",
+            Arguments = "/d /c start \"TinycastUpdate\" /min cmd.exe /d /c \"" + bat + "\"",
             UseShellExecute = false,
             CreateNoWindow = true,
+            WorkingDirectory = AppPaths.UpdatesDir,
         });
     }
+
+    static string CmdLiteral(string path) =>
+        path.Replace("\"", "", StringComparison.Ordinal)
+            .TrimEnd('\\');
 
     static HttpClient CreateClient()
     {
