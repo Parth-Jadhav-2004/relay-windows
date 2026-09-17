@@ -21,6 +21,9 @@ public static class SettingsBackupCoverage
         AppSettingsKey.NavigationEnabled,
         AppSettingsKey.FileSearchScopes,
         AppSettingsKey.FileSearchIgnorePatterns,
+        AppSettingsKey.WindowGap,
+        AppSettingsKey.WindowCycle,
+        AppSettingsKey.EmojiColumns,
     };
 
     public static IReadOnlySet<string> ExternallySourced { get; } = new HashSet<string>

@@ -28,6 +28,9 @@ public static class SettingsSnapshot
         [AppSettingsKey.NavigationEnabled] = Flag(settings.NavigationEnabled),
         [AppSettingsKey.FileSearchScopes] = string.Join("\n", settings.FileSearchScopes),
         [AppSettingsKey.FileSearchIgnorePatterns] = string.Join("\n", settings.FileSearchIgnorePatterns),
+        [AppSettingsKey.WindowGap] = settings.WindowGap.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.WindowCycle] = settings.WindowCycle,
+        [AppSettingsKey.EmojiColumns] = settings.EmojiColumns.ToString(CultureInfo.InvariantCulture),
     };
 
     public static void ApplyMirrored(AppSettings settings, IReadOnlyDictionary<string, string> data)
@@ -79,6 +82,17 @@ public static class SettingsSnapshot
                     break;
                 case AppSettingsKey.FileSearchIgnorePatterns:
                     settings.FileSearchIgnorePatterns = Lines(value);
+                    break;
+                case AppSettingsKey.WindowGap:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var gap))
+                        settings.WindowGap = Math.Clamp(gap, 0, 64);
+                    break;
+                case AppSettingsKey.WindowCycle:
+                    settings.WindowCycle = value;
+                    break;
+                case AppSettingsKey.EmojiColumns:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cols))
+                        settings.EmojiColumns = Math.Clamp(cols, 6, 10);
                     break;
             }
         }

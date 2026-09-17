@@ -20,17 +20,23 @@ Isolated settings live in `%APPDATA%\Tinycast\com.tinycast.windows.dev\` for Deb
 ## Updates
 
 Release builds check [GitHub Releases](https://github.com/Parth-Jadhav-2004/tinycast-windows/releases)
-for `Tinycast-windows-x64.zip`. **Check for Updates** (palette or Settings → About) downloads the zip
-into `%LOCALAPPDATA%\Programs\Tinycast` and restarts.
+for `Tinycast-windows-x64.zip` about 30 seconds after launch, and whenever you click
+**Check for updates** in Settings → About (or the palette command).
 
-The repo is private, so the GitHub API needs a personal access token with `repo` scope. Store it in
-Settings → About. It stays in Credential Locker and is never backed up.
+The repo is private, so the GitHub API needs a token with `repo` scope. Put it in
+`TINYCAST_GITHUB_TOKEN` or in `%APPDATA%\Tinycast\com.tinycast.windows\.env`:
+
+```
+TINYCAST_GITHUB_TOKEN=ghp_your_token
+```
+
+See `.env.example`. The token is never shown in Settings and is never backed up.
 
 Publish a build:
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 The Release workflow publishes a self-contained zip. Dev (`DEBUG`) builds do not install those zips.

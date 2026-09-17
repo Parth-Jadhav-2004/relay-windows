@@ -43,4 +43,32 @@ public static class UpdateRelease
             && n.Contains("windows", StringComparison.OrdinalIgnoreCase)
             && n.Contains(architecture == Architecture.Arm64 ? "arm64" : "x64", StringComparison.OrdinalIgnoreCase));
     }
+
+    public readonly record struct ReleaseListing(
+        string Tag,
+        Version Version,
+        bool Draft,
+        bool Prerelease,
+        IReadOnlyList<string> AssetNames);
+
+    public static ReleaseListing? SelectLatest(
+        IEnumerable<ReleaseListing> releases,
+        Architecture architecture,
+        bool includePrerelease = false)
+    {
+        ReleaseListing? best = null;
+        foreach (var release in releases)
+        {
+            if (release.Draft)
+                continue;
+            if (release.Prerelease && !includePrerelease)
+                continue;
+            if (PickAsset(release.AssetNames, architecture) is null)
+                continue;
+            if (best is null || release.Version > best.Value.Version)
+                best = release;
+        }
+
+        return best;
+    }
 }

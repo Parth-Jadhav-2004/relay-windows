@@ -7,7 +7,9 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Tinycast.DesignSystem;
 using Tinycast.Features.Calculator;
 using Tinycast.Features.Clipboard;
+using Tinycast.Features.Emoji;
 using Tinycast.Features.FileSearch;
+using Tinycast.Features.Launcher;
 using Tinycast.Palette;
 using Tinycast.Platform;
 using Windows.System;
@@ -154,12 +156,21 @@ public sealed partial class PaletteWindow : Window
         _rows = _core.LauncherCoordinator.Rows(_core.Palette.Query).ToList();
         _core.Palette.Selection = PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count);
         RowHost.Children.Clear();
-        TabHint.Text = _core.Palette.Mode == PaletteMode.FileSearch
-            ? "Ctrl+P  " + _core.FileSearchCoordinator.Filter.Title()
-            : PaletteTabRing.Hint(_core.Palette.Mode, _core.Settings.ClipboardEnabled, _core.Settings.AiEnabled);
-        TabHint.Visibility = _core.Palette.Mode == PaletteMode.Clipboard
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        TabHint.Text = _core.Palette.Mode switch
+        {
+            PaletteMode.FileSearch => "Ctrl+P  " + _core.FileSearchCoordinator.Filter.Title(),
+            PaletteMode.Clipboard => "Ctrl+P  " + ClipboardListFilterLogic.Label(_core.ClipboardCoordinator.Filter),
+            _ => PaletteTabRing.Hint(_core.Palette.Mode, _core.Settings.ClipboardEnabled, _core.Settings.AiEnabled),
+        };
+        TabHint.Visibility = Visibility.Visible;
+
+        if (_core.Palette.Mode == PaletteMode.Emoji)
+        {
+            RenderEmojiGrid(dark);
+            ApplyClipboardSplit(false, dark);
+            UpdateFooterAction();
+            return;
+        }
 
         if (_rows.Count == 0)
         {
@@ -210,6 +221,51 @@ public sealed partial class PaletteWindow : Window
 
         UpdateFooterAction();
         BringSelectionIntoView(selectedElement);
+    }
+
+    void RenderEmojiGrid(bool dark)
+    {
+        var columns = Math.Clamp(_core.Settings.EmojiColumns, 6, 10);
+        var selected = PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count);
+        StackPanel? line = null;
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            if (i % columns == 0)
+            {
+                line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+                RowHost.Children.Add(line);
+            }
+
+            var index = i;
+            var row = _rows[i];
+            var cell = new Button
+            {
+                Content = row.Glyph,
+                Width = 40,
+                Height = 40,
+                MinWidth = 0,
+                MinHeight = 0,
+                Padding = new Thickness(0),
+                FontSize = 20,
+                BorderThickness = new Thickness(i == selected ? 1 : 0),
+                Background = i == selected
+                    ? ThemeBrushes.InkBrush(Theme.Colors.Selection.For(dark), dark)
+                    : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            };
+            cell.Click += (_, _) =>
+            {
+                _core.Palette.Selection = index;
+                _core.LauncherCoordinator.Activate(row.Id);
+            };
+            line!.Children.Add(cell);
+        }
+
+        if (_rows.Count == 0)
+        {
+            EmptyState.Visibility = Visibility.Visible;
+            EmptyTitle.Text = "Emoji";
+            EmptyBody.Text = "Type a name to filter.";
+        }
     }
 
     void ApplyClipboardSplit(bool split, bool dark)
@@ -568,7 +624,10 @@ public sealed partial class PaletteWindow : Window
 
         if (e.Key == VirtualKey.Down)
         {
-            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, 1, _rows.Count);
+            var step = _core.Palette.Mode == PaletteMode.Emoji
+                ? Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
+                : 1;
+            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, step, _rows.Count);
             _core.Palette.Notify();
             e.Handled = true;
             return;
@@ -583,7 +642,10 @@ public sealed partial class PaletteWindow : Window
                 return;
             }
 
-            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, -1, _rows.Count);
+            var step = _core.Palette.Mode == PaletteMode.Emoji
+                ? Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
+                : 1;
+            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, -step, _rows.Count);
             _core.Palette.Notify();
             e.Handled = true;
             return;
@@ -629,7 +691,7 @@ public sealed partial class PaletteWindow : Window
 
         if (e.Key == VirtualKey.P && NativeMethods.IsKeyDown(NativeMethods.VkControl) && _core.Palette.Mode == PaletteMode.Clipboard)
         {
-            PinSelection();
+            _core.ClipboardCoordinator.CycleFilter();
             e.Handled = true;
             return;
         }
@@ -731,6 +793,56 @@ public sealed partial class PaletteWindow : Window
             var copyCalc = new MenuFlyoutItem { Text = "Copy Calculation" };
             copyCalc.Click += OnCopyCalculationClick;
             ActionsFlyout.Items.Add(copyCalc);
+            return;
+        }
+
+        if (row.Kind == AppEntryKind.Application)
+        {
+            var app = _core.Apps.FirstOrDefault(a => a.Id == row.Id);
+            if (app is null)
+                return;
+            AddAppAction("Open", () =>
+            {
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                ProcessLauncher.Launch(app);
+            });
+            AddAppAction("Show in Explorer", () =>
+            {
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                AppProcess.Reveal(app);
+            });
+            AddAppAction(_core.Favorites.IsFavorite(app.Id) ? "Remove Favorite" : "Add Favorite", () =>
+            {
+                _core.Favorites.Toggle(app.Id);
+                _core.Palette.Notify();
+            });
+            AddAppAction(_core.Visibility.IsHidden(app.Id) ? "Show in Search" : "Hide from Search", () =>
+            {
+                if (_core.Visibility.IsHidden(app.Id))
+                    _core.Visibility.Remove(app.Id);
+                else
+                    _core.Visibility.Set(app.Id, true);
+                _core.Palette.Notify();
+            });
+            AddAppAction("Restart", () =>
+            {
+                _core.PaletteCoordinator.HidePalette();
+                AppProcess.Restart(app);
+            });
+            AddAppAction("Quit", () =>
+            {
+                _core.PaletteCoordinator.HidePalette();
+                AppProcess.Quit(app);
+            });
+            AddAppAction("Uninstall leftovers", () =>
+                _core.PaletteCoordinator.ShowPalette(PaletteMode.Uninstall, seeding: app.Title));
+        }
+
+        void AddAppAction(string title, Action action)
+        {
+            var item = new MenuFlyoutItem { Text = title };
+            item.Click += (_, _) => action();
+            ActionsFlyout.Items.Add(item);
         }
     }
 
@@ -795,9 +907,11 @@ public sealed partial class PaletteWindow : Window
                 {
                     PaletteMode.Clipboard or PaletteMode.Emoji => "Paste",
                     PaletteMode.Snippets => "Paste",
-                    _ => "Open",
+                    _ => row.Kind == AppEntryKind.Application ? "Open" : "Open",
                 });
-        ActionsButton.Visibility = row.ShowActions ? Visibility.Visible : Visibility.Collapsed;
+        ActionsButton.Visibility = row.ShowActions || row.Kind == AppEntryKind.Application
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     void OnOpenClick(object sender, RoutedEventArgs e) => ActivateSelection();

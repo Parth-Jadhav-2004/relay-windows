@@ -2,9 +2,14 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Tinycast.DesignSystem;
 using Tinycast.Features.Commands;
+using Tinycast.Features.Clipboard;
 using Tinycast.Features.HotKeys;
+using Tinycast.Features.Launcher;
 using Tinycast.Features.Quicklinks;
+using Tinycast.Features.Settings;
 using Tinycast.Features.Snippets;
+using Tinycast.Features.SystemActions;
+using Tinycast.Features.WindowManagement;
 using Tinycast.Platform;
 using Windows.ApplicationModel.Appointments;
 
@@ -13,8 +18,13 @@ namespace Tinycast;
 public sealed partial class SettingsWindow : Window
 {
     readonly AppCore _core;
+    readonly Dictionary<SettingsTab, StackPanel> _panes;
     bool _ready;
     HotKeyChord? _pendingChord;
+    SettingsTab _tab = SettingsTab.General;
+    string? _selectedAppId;
+    string? _selectedSnippetId;
+    string? _selectedLayoutId;
 
     public SettingsWindow(AppCore core)
     {
@@ -22,7 +32,33 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         WindowChrome.ResizeDips(this, Theme.Size.SettingsWindowWidth, Theme.Size.SettingsWindowHeight + 40);
+        _panes = new Dictionary<SettingsTab, StackPanel>
+        {
+            [SettingsTab.General] = GeneralPane,
+            [SettingsTab.Permissions] = PermissionsPane,
+            [SettingsTab.Hotkeys] = HotkeysPane,
+            [SettingsTab.Applications] = ApplicationsPane,
+            [SettingsTab.SystemSettings] = SystemSettingsPane,
+            [SettingsTab.SystemActions] = SystemActionsPane,
+            [SettingsTab.Commands] = CommandsPane,
+            [SettingsTab.Quicklinks] = QuicklinksPane,
+            [SettingsTab.Fallbacks] = FallbacksPane,
+            [SettingsTab.Ai] = AiPane,
+            [SettingsTab.QuickActions] = QuickActionsPane,
+            [SettingsTab.FileSearch] = FileSearchPane,
+            [SettingsTab.Notes] = NotesPane,
+            [SettingsTab.Snippets] = SnippetsPane,
+            [SettingsTab.Navigation] = NavigationPane,
+            [SettingsTab.WindowManagement] = WindowManagementPane,
+            [SettingsTab.Clipboard] = ClipboardPane,
+            [SettingsTab.Emoji] = EmojiPane,
+            [SettingsTab.Calendar] = CalendarPane,
+            [SettingsTab.Extensions] = ExtensionsPane,
+            [SettingsTab.Backup] = BackupPane,
+            [SettingsTab.About] = AboutPane,
+        };
         Load();
+        SelectTab(SettingsTab.General);
         _ready = true;
     }
 
@@ -30,8 +66,74 @@ public sealed partial class SettingsWindow : Window
     {
         _ready = false;
         Load();
+        SelectTab(_tab);
         _ready = true;
     }
+
+    public void SelectTab(SettingsTab tab)
+    {
+        _tab = tab;
+        foreach (var pane in _panes.Values)
+            pane.Visibility = Visibility.Collapsed;
+        _panes[tab].Visibility = Visibility.Visible;
+        RebuildSidebar();
+        if (tab == SettingsTab.About)
+        {
+            AboutIdentity.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel + "  ·  " + UpdatesClient.Repository;
+            AboutMcp.Text = _core.McpStatus();
+            AboutUpdateStatus.Text = GitHubAuth.StatusLine;
+        }
+
+        if (tab == SettingsTab.Applications)
+            BindApplications();
+        if (tab == SettingsTab.Fallbacks)
+            BindFallbacks();
+        if (tab == SettingsTab.Snippets)
+            BindSnippets();
+        if (tab == SettingsTab.WindowManagement)
+            BindLayouts();
+        if (tab == SettingsTab.Clipboard)
+            ClipboardFilterHint.Text = "Ctrl+P cycles " + ClipboardListFilterLogic.Label(_core.ClipboardCoordinator.Filter) + ".";
+        if (tab == SettingsTab.Hotkeys)
+            RefreshHotKeys();
+    }
+
+    void RebuildSidebar()
+    {
+        SidebarHost.Children.Clear();
+        var query = SettingsSearch.Text?.Trim() ?? "";
+        var panes = SettingsCatalog.Search(query);
+        string? section = null;
+        foreach (var pane in panes)
+        {
+            if (string.IsNullOrWhiteSpace(query) && pane.Section != section)
+            {
+                section = pane.Section;
+                SidebarHost.Children.Add(new TextBlock
+                {
+                    Text = section,
+                    Margin = new Thickness(8, 10, 8, 4),
+                    Opacity = 0.6,
+                    FontSize = 12,
+                });
+            }
+
+            var tab = pane.Tab;
+            var button = new Button
+            {
+                Content = pane.Title,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Tag = tab,
+            };
+            if (tab == _tab)
+                button.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            button.Click += (_, _) => SelectTab(tab);
+            SidebarHost.Children.Add(button);
+        }
+    }
+
+    void OnSettingsSearch(object sender, TextChangedEventArgs e) => RebuildSidebar();
 
     void Load()
     {
@@ -61,6 +163,14 @@ public sealed partial class SettingsWindow : Window
         ExtensionsSwitch.IsOn = _core.Settings.ExtensionsEnabled;
         FileSearchScopesBox.Text = string.Join(Environment.NewLine, _core.Settings.FileSearchScopes);
         FileSearchIgnoreBox.Text = string.Join(Environment.NewLine, _core.Settings.FileSearchIgnorePatterns);
+        GapSlider.Value = _core.Settings.WindowGap;
+        CycleBox.SelectedIndex = _core.Settings.WindowCycle switch
+        {
+            "Off" => 0,
+            "Displays" => 2,
+            _ => 1,
+        };
+        EmojiColumnsSlider.Value = _core.Settings.EmojiColumns;
         AiModelBox.Text = _core.Ai.Model;
         AiEndpointBox.Text = _core.Ai.Endpoint;
         AiKeyBox.Password = CredentialStore.Get("ai") ?? "";
@@ -74,10 +184,14 @@ public sealed partial class SettingsWindow : Window
             HotKeyCommandBox.Items.Add(id);
         HotKeyCommandBox.SelectedIndex = 0;
         DoubleTapBox.SelectedIndex = 0;
+        SystemSettingsList.ItemsSource = MsSettingsCatalog.All.Select(s => s.Title).ToList();
+        SystemActionsList.ItemsSource = SystemActionCatalog.All.Select(a => a.Name).ToList();
+        BindCustomCommands();
+        BindQuicklinks();
         RefreshHotKeys();
         AboutIdentity.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel + "  ·  " + UpdatesClient.Repository;
         AboutMcp.Text = _core.McpStatus();
-        GitHubTokenBox.Password = CredentialStore.Get(UpdatesClient.TokenKey) ?? "";
+        AboutUpdateStatus.Text = GitHubAuth.StatusLine;
     }
 
     static readonly string[] BindableCommands =
@@ -98,25 +212,265 @@ public sealed partial class SettingsWindow : Window
         BuiltinCommands.Quit,
     ];
 
-    void ShowPane(StackPanel pane)
+    void BindApplications()
     {
-        GeneralPane.Visibility = Visibility.Collapsed;
-        PermissionsPane.Visibility = Visibility.Collapsed;
-        FeaturesPane.Visibility = Visibility.Collapsed;
-        HotKeysPane.Visibility = Visibility.Collapsed;
-        BackupPane.Visibility = Visibility.Collapsed;
-        AboutPane.Visibility = Visibility.Collapsed;
-        pane.Visibility = Visibility.Visible;
-        if (pane == AboutPane)
-            AboutMcp.Text = _core.McpStatus();
+        var filter = ApplicationsFilter.Text?.Trim() ?? "";
+        ApplicationsList.ItemsSource = _core.Apps
+            .Where(a => filter.Length == 0 || a.Title.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => a.Title)
+            .Take(200)
+            .Select(a => (_core.Visibility.IsHidden(a.Id) ? "Hidden  ·  " : "") + a.Title)
+            .ToList();
     }
 
-    void OnGeneralNav(object sender, RoutedEventArgs e) => ShowPane(GeneralPane);
-    void OnPermissionsNav(object sender, RoutedEventArgs e) => ShowPane(PermissionsPane);
-    void OnFeaturesNav(object sender, RoutedEventArgs e) => ShowPane(FeaturesPane);
-    void OnHotKeysNav(object sender, RoutedEventArgs e) => ShowPane(HotKeysPane);
-    void OnBackupNav(object sender, RoutedEventArgs e) => ShowPane(BackupPane);
-    void OnAboutNav(object sender, RoutedEventArgs e) => ShowPane(AboutPane);
+    void OnApplicationsFilter(object sender, TextChangedEventArgs e) => BindApplications();
+
+    void OnApplicationSelected(object sender, SelectionChangedEventArgs e)
+    {
+        var filter = ApplicationsFilter.Text?.Trim() ?? "";
+        var apps = _core.Apps
+            .Where(a => filter.Length == 0 || a.Title.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => a.Title)
+            .Take(200)
+            .ToList();
+        _selectedAppId = ApplicationsList.SelectedIndex >= 0 && ApplicationsList.SelectedIndex < apps.Count
+            ? apps[ApplicationsList.SelectedIndex].Id
+            : null;
+        ApplicationAliasBox.Text = _selectedAppId is null ? "" : _core.Aliases.Get(_selectedAppId) ?? "";
+    }
+
+    void OnSetApplicationAlias(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAppId is null || string.IsNullOrWhiteSpace(ApplicationAliasBox.Text))
+            return;
+        _core.Aliases.Set(_selectedAppId, ApplicationAliasBox.Text.Trim());
+        _core.ShowMessage("Alias saved");
+    }
+
+    void OnHideApplication(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAppId is null)
+            return;
+        _core.Visibility.Set(_selectedAppId, true);
+        BindApplications();
+    }
+
+    void OnShowApplication(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAppId is null)
+            return;
+        _core.Visibility.Remove(_selectedAppId);
+        BindApplications();
+    }
+
+    void BindFallbacks()
+    {
+        FallbacksList.ItemsSource = _core.Fallbacks
+            .Select(f => (f.Enabled ? "On  ·  " : "Off  ·  ") + FallbackTitle(f.Id))
+            .ToList();
+    }
+
+    string FallbackTitle(string id)
+    {
+        if (id.StartsWith("quicklink:", StringComparison.Ordinal))
+        {
+            var link = _core.Quicklinks.FirstOrDefault(q => q.Id == id);
+            return link is null ? id : "Quicklink  ·  " + link.Name;
+        }
+
+        return FallbackCatalog.Title(id);
+    }
+
+    void OnToggleFallback(object sender, RoutedEventArgs e)
+    {
+        var index = FallbacksList.SelectedIndex;
+        if (index < 0 || index >= _core.Fallbacks.Count)
+            return;
+        _core.Fallbacks[index].Enabled = !_core.Fallbacks[index].Enabled;
+        _core.PersistFallbacks();
+        BindFallbacks();
+        FallbacksList.SelectedIndex = index;
+    }
+
+    void OnMoveFallbackUp(object sender, RoutedEventArgs e) => MoveFallback(-1);
+    void OnMoveFallbackDown(object sender, RoutedEventArgs e) => MoveFallback(1);
+
+    void MoveFallback(int delta)
+    {
+        var index = FallbacksList.SelectedIndex;
+        var next = index + delta;
+        if (index < 0 || next < 0 || next >= _core.Fallbacks.Count)
+            return;
+        (_core.Fallbacks[index], _core.Fallbacks[next]) = (_core.Fallbacks[next], _core.Fallbacks[index]);
+        _core.PersistFallbacks();
+        BindFallbacks();
+        FallbacksList.SelectedIndex = next;
+    }
+
+    void BindCustomCommands()
+    {
+        CustomCommandsList.ItemsSource = _core.CustomCommands.Select(c => c.Name + "  ·  " + c.FileName).ToList();
+    }
+
+    void BindQuicklinks()
+    {
+        QuicklinksList.ItemsSource = _core.Quicklinks.Select(q => q.Name + "  ·  " + q.Destination).ToList();
+    }
+
+    void BindSnippets()
+    {
+        SnippetsList.ItemsSource = _core.Snippets.Select(s => s.Name + (string.IsNullOrWhiteSpace(s.Keyword) ? "" : "  ·  " + s.Keyword)).ToList();
+    }
+
+    void OnSnippetSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (SnippetsList.SelectedIndex < 0 || SnippetsList.SelectedIndex >= _core.Snippets.Count)
+        {
+            _selectedSnippetId = null;
+            return;
+        }
+
+        var snippet = _core.Snippets[SnippetsList.SelectedIndex];
+        _selectedSnippetId = snippet.Id;
+        SnippetNameBox.Text = snippet.Name;
+        SnippetKeywordBox.Text = snippet.Keyword;
+        SnippetTextBox.Text = snippet.Text;
+    }
+
+    void OnSaveSnippet(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SnippetNameBox.Text) || string.IsNullOrWhiteSpace(SnippetTextBox.Text))
+            return;
+        if (_selectedSnippetId is not null)
+        {
+            var index = _core.Snippets.FindIndex(s => s.Id == _selectedSnippetId);
+            if (index >= 0)
+            {
+                _core.Snippets[index] = new StoredSnippet(
+                    _selectedSnippetId,
+                    SnippetNameBox.Text.Trim(),
+                    SnippetKeywordBox.Text.Trim(),
+                    SnippetTextBox.Text);
+                _core.PersistSnippets();
+                BindSnippets();
+                _core.ShowMessage("Snippet saved");
+                return;
+            }
+        }
+
+        var created = new StoredSnippet(
+            "snippet:" + Guid.NewGuid().ToString("n"),
+            SnippetNameBox.Text.Trim(),
+            SnippetKeywordBox.Text.Trim(),
+            SnippetTextBox.Text);
+        _core.Snippets.Add(created);
+        _selectedSnippetId = created.Id;
+        _core.PersistSnippets();
+        BindSnippets();
+        _core.ShowMessage("Snippet saved");
+    }
+
+    void OnRemoveSnippet(object sender, RoutedEventArgs e)
+    {
+        if (_selectedSnippetId is null)
+            return;
+        _core.Snippets.RemoveAll(s => s.Id == _selectedSnippetId);
+        _selectedSnippetId = null;
+        SnippetNameBox.Text = SnippetKeywordBox.Text = SnippetTextBox.Text = "";
+        _core.PersistSnippets();
+        BindSnippets();
+    }
+
+    void BindLayouts()
+    {
+        LayoutsList.ItemsSource = _core.Layouts.Select(l => l.Name + "  ·  " + l.Slots.Count).ToList();
+    }
+
+    void OnLayoutSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (LayoutsList.SelectedIndex < 0 || LayoutsList.SelectedIndex >= _core.Layouts.Count)
+        {
+            _selectedLayoutId = null;
+            return;
+        }
+
+        var layout = _core.Layouts[LayoutsList.SelectedIndex];
+        _selectedLayoutId = layout.Id;
+        LayoutNameBox.Text = layout.Name;
+        LayoutSlotsBox.Text = string.Join(Environment.NewLine, layout.Slots.Select(s =>
+            s.ProcessName + "  " + (int)s.Frame.X + "  " + (int)s.Frame.Y + "  " + (int)s.Frame.Width + "  " + (int)s.Frame.Height));
+    }
+
+    void OnCaptureLayout(object sender, RoutedEventArgs e)
+    {
+        _core.SaveCurrentLayout();
+        BindLayouts();
+        if (_core.Layouts.Count > 0)
+            LayoutsList.SelectedIndex = _core.Layouts.Count - 1;
+    }
+
+    void OnSaveLayoutEdit(object sender, RoutedEventArgs e)
+    {
+        if (_selectedLayoutId is null)
+            return;
+        var index = _core.Layouts.FindIndex(l => l.Id == _selectedLayoutId);
+        if (index < 0)
+            return;
+        var slots = new List<WindowLayoutSlot>();
+        foreach (var line in LayoutSlotsBox.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 5)
+                continue;
+            if (!double.TryParse(parts[^4], out var x) || !double.TryParse(parts[^3], out var y)
+                || !double.TryParse(parts[^2], out var w) || !double.TryParse(parts[^1], out var h))
+                continue;
+            var name = string.Join(' ', parts.Take(parts.Length - 4));
+            slots.Add(new WindowLayoutSlot(name, new RectD(x, y, w, h), 0));
+        }
+
+        var nameText = string.IsNullOrWhiteSpace(LayoutNameBox.Text) ? _core.Layouts[index].Name : LayoutNameBox.Text.Trim();
+        _core.Layouts[index] = new WindowLayout(_selectedLayoutId, nameText, slots);
+        _core.PersistLayouts();
+        BindLayouts();
+        _core.ShowMessage("Layout saved");
+    }
+
+    void OnDeleteLayout(object sender, RoutedEventArgs e)
+    {
+        if (_selectedLayoutId is null)
+            return;
+        _core.Layouts.RemoveAll(l => l.Id == _selectedLayoutId);
+        _selectedLayoutId = null;
+        LayoutNameBox.Text = LayoutSlotsBox.Text = "";
+        _core.PersistLayouts();
+        BindLayouts();
+    }
+
+    void OnGapChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.WindowGap = (int)GapSlider.Value;
+        _core.Persist();
+    }
+
+    void OnCycleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready || CycleBox.SelectedItem is not ComboBoxItem item)
+            return;
+        _core.Settings.WindowCycle = item.Tag?.ToString() ?? "Sizes";
+        _core.Persist();
+    }
+
+    void OnEmojiColumnsChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.EmojiColumns = (int)EmojiColumnsSlider.Value;
+        _core.Persist();
+        _core.Palette.Notify();
+    }
 
     void OnAppearanceChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -223,7 +577,7 @@ public sealed partial class SettingsWindow : Window
             ? "https://api.openai.com/v1/chat/completions"
             : AiEndpointBox.Text.Trim();
         AiClient.Save(_core.Ai);
-        _core.ShowMessage("AI key stored in Credential Locker");
+        _core.ShowMessage("AI key stored");
     }
 
     void OnSaveOpenCode(object sender, RoutedEventArgs e)
@@ -237,13 +591,12 @@ public sealed partial class SettingsWindow : Window
         if (!string.IsNullOrWhiteSpace(model))
             _core.AiCoordinator.SelectedModel = model;
         _core.AiCoordinator.Save();
-        OpenCodeStatus.Text = "OpenCode settings saved. Refresh provider status to reconnect.";
-        _core.ShowMessage("OpenCode settings saved (password in Credential Locker, never backed up)");
+        OpenCodeStatus.Text = "Saved. Refresh to reconnect.";
     }
 
     async void OnRefreshOpenCode(object sender, RoutedEventArgs e)
     {
-        OpenCodeStatus.Text = "Refreshing OpenCode providers…";
+        OpenCodeStatus.Text = "Refreshing…";
         await _core.AiCoordinator.RefreshAsync();
         OpenCodeStatus.Text = _core.AiCoordinator.Status
             + (_core.AiCoordinator.Version is { } v ? $" (v{v})" : "")
@@ -251,20 +604,6 @@ public sealed partial class SettingsWindow : Window
         if (!string.IsNullOrWhiteSpace(_core.AiCoordinator.SelectedModel))
             OpenCodeModelBox.Text = _core.AiCoordinator.SelectedModel;
         _core.Palette.Notify();
-    }
-
-    void OnAddSnippet(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(SnippetNameBox.Text) || string.IsNullOrWhiteSpace(SnippetTextBox.Text))
-            return;
-        _core.Snippets.Add(new StoredSnippet(
-            "snippet:" + Guid.NewGuid().ToString("n"),
-            SnippetNameBox.Text.Trim(),
-            SnippetKeywordBox.Text.Trim(),
-            SnippetTextBox.Text));
-        _core.PersistSnippets();
-        SnippetNameBox.Text = SnippetKeywordBox.Text = SnippetTextBox.Text = "";
-        _core.ShowMessage("Snippet saved");
     }
 
     void OnAddQuicklink(object sender, RoutedEventArgs e)
@@ -279,8 +618,19 @@ public sealed partial class SettingsWindow : Window
             QuicklinkDestination.Classify(dest),
             null));
         _core.PersistQuicklinks();
+        _core.RefreshFallbacks();
         LinkNameBox.Text = LinkDestBox.Text = "";
-        _core.ShowMessage("Quicklink saved");
+        BindQuicklinks();
+    }
+
+    void OnRemoveQuicklink(object sender, RoutedEventArgs e)
+    {
+        if (QuicklinksList.SelectedIndex < 0 || QuicklinksList.SelectedIndex >= _core.Quicklinks.Count)
+            return;
+        _core.Quicklinks.RemoveAt(QuicklinksList.SelectedIndex);
+        _core.PersistQuicklinks();
+        _core.RefreshFallbacks();
+        BindQuicklinks();
     }
 
     void OnAddCustom(object sender, RoutedEventArgs e)
@@ -295,31 +645,16 @@ public sealed partial class SettingsWindow : Window
             true));
         _core.PersistCustomCommands();
         CmdNameBox.Text = CmdFileBox.Text = "";
-        _core.ShowMessage("Command saved");
+        BindCustomCommands();
     }
 
-    void OnAddAlias(object sender, RoutedEventArgs e)
+    void OnRemoveCustom(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(AliasIdBox.Text) || string.IsNullOrWhiteSpace(AliasTextBox.Text))
+        if (CustomCommandsList.SelectedIndex < 0 || CustomCommandsList.SelectedIndex >= _core.CustomCommands.Count)
             return;
-        _core.Aliases.Set(AliasIdBox.Text.Trim(), AliasTextBox.Text.Trim());
-        _core.ShowMessage("Alias saved");
-    }
-
-    void OnHideItem(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(AliasIdBox.Text))
-            return;
-        _core.Visibility.Set(AliasIdBox.Text.Trim(), true);
-        _core.ShowMessage("Hidden from the launcher");
-    }
-
-    void OnShowItem(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(AliasIdBox.Text))
-            return;
-        _core.Visibility.Remove(AliasIdBox.Text.Trim());
-        _core.ShowMessage("Visible in the launcher");
+        _core.CustomCommands.RemoveAt(CustomCommandsList.SelectedIndex);
+        _core.PersistCustomCommands();
+        BindCustomCommands();
     }
 
     void RefreshHotKeys()
@@ -335,8 +670,8 @@ public sealed partial class SettingsWindow : Window
 
         var conflicts = HotKeyConflicts.Find(_core.HotKeys);
         HotKeyStatus.Text = conflicts.Count == 0
-            ? _pendingChord is { } pending ? "Captured " + pending.Label : "No conflicts."
-            : conflicts.Count + " conflict(s). The later binding still registers.";
+            ? _pendingChord is { } pending ? "Captured " + pending.Label : ""
+            : conflicts.Count + " conflict(s).";
     }
 
     void OnRecordHotKey(object sender, RoutedEventArgs e)
@@ -387,16 +722,10 @@ public sealed partial class SettingsWindow : Window
         RefreshHotKeys();
     }
 
-    void OnSaveGitHubToken(object sender, RoutedEventArgs e)
-    {
-        CredentialStore.Set(UpdatesClient.TokenKey, GitHubTokenBox.Password);
-        _core.ShowMessage(string.IsNullOrWhiteSpace(GitHubTokenBox.Password)
-            ? "GitHub token cleared"
-            : "GitHub token stored in Credential Locker");
-    }
-
+    void OnOpenNotes(object sender, RoutedEventArgs e) => _core.ShowNotes();
     void OnExportBackup(object sender, RoutedEventArgs e) => _core.ExportBackup();
     void OnImportBackup(object sender, RoutedEventArgs e) => _core.ImportBackup();
     void OnCheckUpdates(object sender, RoutedEventArgs e) => _ = _core.CheckUpdates();
     void OnOpenSupport(object sender, RoutedEventArgs e) => _core.ShowSupport();
+    void OnReplayOnboarding(object sender, RoutedEventArgs e) => _core.ShowOnboarding(force: true);
 }

@@ -24,4 +24,7 @@ public sealed class AppSettings
     public bool NavigationEnabled { get; set; } = true;
     public List<string> FileSearchScopes { get; set; } = [];
     public List<string> FileSearchIgnorePatterns { get; set; } = [];
+    public int WindowGap { get; set; } = 8;
+    public string WindowCycle { get; set; } = "Sizes";
+    public int EmojiColumns { get; set; } = 8;
 }

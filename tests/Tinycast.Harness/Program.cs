@@ -6,6 +6,7 @@ using Tinycast.Features.Backup;
 using Tinycast.Features.Calculator;
 using Tinycast.Features.Calendar;
 using Tinycast.Features.Clipboard;
+using Tinycast.Features.Emoji;
 using Tinycast.Features.HotKeys;
 using Tinycast.Features.Launcher;
 using Tinycast.Features.Quicklinks;
@@ -294,6 +295,7 @@ void Check(string name, bool ok, string? detail = null)
     Check("images accept png", FileSearchFilter.Images.Accepts(@"C:\a.png", false));
     Check("folders filter keeps directories", FileSearchFilter.Folders.Accepts(@"C:\a", true) && !FileSearchFilter.Folders.Accepts(@"C:\a.png", false));
     Check("file search scopes are mirrored", SettingsBackupCoverage.Mirrored.Contains(AppSettingsKey.FileSearchScopes));
+    Check("window gap is mirrored", SettingsBackupCoverage.Mirrored.Contains(AppSettingsKey.WindowGap));
 }
 
 {
@@ -546,6 +548,41 @@ void Check(string name, bool ok, string? detail = null)
     Check("update zip prefers x64", UpdateRelease.PickAsset(["notes.txt", "Tinycast-windows-x64.zip"], System.Runtime.InteropServices.Architecture.X64) == "Tinycast-windows-x64.zip");
     Check("update notes drop install marker",
         UpdateRelease.NotesSummary("Fixed search.\n\n<!-- tinycast:install -->\nUnzip me") == "Fixed search.");
+    var listings = new UpdateRelease.ReleaseListing[]
+    {
+        new("v0.1.0", new Version(0, 1, 0), false, false, ["Tinycast-windows-x64.zip"]),
+        new("v0.2.0", new Version(0, 2, 0), false, false, ["Tinycast-windows-x64.zip"]),
+        new("v0.3.0", new Version(0, 3, 0), true, false, ["Tinycast-windows-x64.zip"]),
+        new("v0.2.1", new Version(0, 2, 1), false, false, ["notes.txt"]),
+    };
+    Check("update latest skips drafts and missing zips",
+        UpdateRelease.SelectLatest(listings, System.Runtime.InteropServices.Architecture.X64)?.Tag == "v0.2.0");
+    var env = DotEnv.Parse("""
+        # comment
+        export TINYCAST_GITHUB_TOKEN="ghp_example"
+        GITHUB_TOKEN=ignored # trailing
+        """);
+    Check("dotenv reads quoted token", env["TINYCAST_GITHUB_TOKEN"] == "ghp_example");
+    Check("github token strips bearer", GitHubToken.Sanitize("Bearer ghp_example") == "ghp_example");
+    Check("github token rejects blank", GitHubToken.Sanitize("  ") is null);
+}
+
+{
+    Check("settings search finds ocr on clipboard", SettingsCatalog.Search("ocr").Any(p => p.Tab == SettingsTab.Clipboard));
+    Check("settings has no apple shortcuts pane", SettingsCatalog.Panes.All(p => p.Title != "Apple Shortcuts"));
+    Check("url fallback detects host", FallbackCatalog.LooksLikeUrl("github.com"));
+    Check("url fallback rejects words", !FallbackCatalog.LooksLikeUrl("open notepad"));
+    Check("clipboard filter cycles", ClipboardListFilterLogic.Next(ClipboardListFilter.All) == ClipboardListFilter.Text);
+    Check("clipboard link match", ClipboardListFilterLogic.IsLink("https://example.com"));
+    var join = MeetingJoinCard.NextJoinable(
+        [new MeetingEvent("1", "Standup", DateTime.Now.AddMinutes(10), DateTime.Now.AddMinutes(40), new MeetingLink(MeetingProvider.Zoom, new Uri("https://zoom.us/j/1"), null), false)],
+        DateTime.Now);
+    Check("join card in two-hour window", join?.Id == "1");
+    Check("emoji catalog is a grid set", EmojiCatalog.All.Count >= 80);
+    var merged = FallbackCatalog.Merge(
+        [new FallbackSpec { Id = FallbackCatalog.Shell, Enabled = false }, new FallbackSpec { Id = FallbackCatalog.Ai, Enabled = true }],
+        []);
+    Check("fallback merge keeps disable", merged.First(f => f.Id == FallbackCatalog.Shell).Enabled == false);
 }
 
 Console.WriteLine();

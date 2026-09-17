@@ -21,10 +21,10 @@ internal static class UpdatesClient
 {
     public const string Owner = "Parth-Jadhav-2004";
     public const string Repo = "tinycast-windows";
-    public const string TokenKey = "github-updates";
 
     public static string Repository => Owner + "/" + Repo;
-    public static string ReleasesApi => "https://api.github.com/repos/" + Repository + "/releases/latest";
+    public static string ReleasesApi => "https://api.github.com/repos/" + Repository + "/releases";
+    public static string RepoApi => "https://api.github.com/repos/" + Repository;
     public static string ReleasesPage => "https://github.com/" + Repository + "/releases";
 
     public static Version Installed
@@ -44,38 +44,42 @@ internal static class UpdatesClient
 
     public static async Task<GitHubRelease> FetchLatestAsync()
     {
+        if (string.IsNullOrWhiteSpace(GitHubAuth.Token))
+            throw new InvalidOperationException(GitHubAuth.MissingTokenMessage());
+
         using var client = CreateClient();
-        using var response = await client.GetAsync(ReleasesApi);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            throw new InvalidOperationException(MissingReleaseMessage());
-        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
-            || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            throw new InvalidOperationException("GitHub refused the request. Add a token with repo access in Settings → About.");
-        response.EnsureSuccessStatusCode();
+        await EnsureRepoVisible(client);
 
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var root = doc.RootElement;
-        var tag = root.GetProperty("tag_name").GetString() ?? "";
-        var version = UpdateRelease.ParseTag(tag)
-            ?? throw new InvalidOperationException("Release tag is not a version: " + tag);
-        var name = root.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? tag : tag;
-        var notes = UpdateRelease.NotesSummary(root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() : null);
-        if (!root.TryGetProperty("assets", out var assets) || assets.GetArrayLength() == 0)
-            throw new InvalidOperationException("Release " + tag + " has no zip assets.");
-
-        var names = new List<(string Name, long Id, long Size)>();
-        foreach (var asset in assets.EnumerateArray())
+        using var response = await client.GetAsync(ReleasesApi + "?per_page=30");
+        if (!response.IsSuccessStatusCode)
         {
-            var assetName = asset.GetProperty("name").GetString();
-            if (string.IsNullOrWhiteSpace(assetName))
-                continue;
-            names.Add((assetName, asset.GetProperty("id").GetInt64(), asset.TryGetProperty("size", out var size) ? size.GetInt64() : 0));
+            Log.Write("update releases HTTP " + (int)response.StatusCode);
+            throw new InvalidOperationException(DescribeHttpFailure(response.StatusCode, "list releases"));
         }
 
-        var pick = UpdateRelease.PickAsset(names.Select(n => n.Name), RuntimeInformation.ProcessArchitecture)
-            ?? throw new InvalidOperationException("Release " + tag + " has no Windows zip for this PC.");
-        var chosen = names.First(n => n.Name.Equals(pick, StringComparison.OrdinalIgnoreCase));
-        return new GitHubRelease(tag, name, notes, version, chosen.Name, chosen.Id, chosen.Size);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("GitHub returned an unexpected releases payload.");
+
+        var listings = new List<UpdateRelease.ReleaseListing>();
+        var details = new Dictionary<string, ParsedRelease>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            var parsed = ParseRelease(item);
+            if (parsed is null)
+                continue;
+            listings.Add(new UpdateRelease.ReleaseListing(
+                parsed.Tag, parsed.Version, parsed.Draft, parsed.Prerelease,
+                parsed.Assets.Select(a => a.Name).ToList()));
+            details[parsed.Tag] = parsed;
+        }
+
+        var selected = UpdateRelease.SelectLatest(listings, RuntimeInformation.ProcessArchitecture)
+            ?? throw new InvalidOperationException("No Windows release is published yet. Installed " + InstalledLabel + ".");
+        var latest = details[selected.Tag];
+        var pick = UpdateRelease.PickAsset(latest.Assets.Select(a => a.Name), RuntimeInformation.ProcessArchitecture)!;
+        var chosen = latest.Assets.First(a => a.Name.Equals(pick, StringComparison.OrdinalIgnoreCase));
+        return new GitHubRelease(latest.Tag, latest.Name, latest.Notes, latest.Version, chosen.Name, chosen.Id, chosen.Size);
     }
 
     public static async Task<string> DownloadAsync(GitHubRelease release, CancellationToken token = default)
@@ -140,16 +144,65 @@ internal static class UpdatesClient
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Tinycast-Windows/" + InstalledLabel);
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
-        var token = CredentialStore.Get(TokenKey);
+        var token = GitHubAuth.Token;
         if (!string.IsNullOrWhiteSpace(token))
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 
-    static string MissingReleaseMessage() =>
-        string.IsNullOrWhiteSpace(CredentialStore.Get(TokenKey))
-            ? "No release found. This private repo needs a GitHub token in Settings → About."
-            : "No Windows release is published yet. Installed " + InstalledLabel + ".";
+    static async Task EnsureRepoVisible(HttpClient client)
+    {
+        using var response = await client.GetAsync(RepoApi);
+        if (response.IsSuccessStatusCode)
+            return;
+        Log.Write("update repo HTTP " + (int)response.StatusCode);
+        throw new InvalidOperationException(DescribeHttpFailure(response.StatusCode, "open " + Repository));
+    }
+
+    static string DescribeHttpFailure(System.Net.HttpStatusCode status, string action) => status switch
+    {
+        System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden =>
+            "GitHub refused the token while trying to " + action + ". Check " + GitHubToken.EnvName + " in " + GitHubAuth.EnvFilePath + ".",
+        System.Net.HttpStatusCode.NotFound =>
+            "GitHub cannot see " + Repository + " with this token. Use a classic PAT with repo scope, or a fine-grained token that includes this private repo.",
+        _ => "GitHub " + action + " failed (HTTP " + (int)status + ").",
+    };
+
+    sealed record ParsedRelease(
+        string Tag,
+        string Name,
+        string Notes,
+        Version Version,
+        bool Draft,
+        bool Prerelease,
+        List<(string Name, long Id, long Size)> Assets);
+
+    static ParsedRelease? ParseRelease(JsonElement root)
+    {
+        var tag = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() ?? "" : "";
+        var version = UpdateRelease.ParseTag(tag);
+        if (version is null)
+            return null;
+        var name = root.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? tag : tag;
+        var notes = UpdateRelease.NotesSummary(root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() : null);
+        var draft = root.TryGetProperty("draft", out var draftEl) && draftEl.ValueKind == JsonValueKind.True;
+        var prerelease = root.TryGetProperty("prerelease", out var preEl) && preEl.ValueKind == JsonValueKind.True;
+        var assets = new List<(string Name, long Id, long Size)>();
+        if (root.TryGetProperty("assets", out var assetsEl) && assetsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var asset in assetsEl.EnumerateArray())
+            {
+                var assetName = asset.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.IsNullOrWhiteSpace(assetName))
+                    continue;
+                var id = asset.TryGetProperty("id", out var idEl) && idEl.TryGetInt64(out var assetId) ? assetId : 0;
+                var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt64(out var assetSize) ? assetSize : 0;
+                assets.Add((assetName, id, size));
+            }
+        }
+
+        return new ParsedRelease(tag, name, notes, version, draft, prerelease, assets);
+    }
 
     static void ExtractZip(string zipPath, string dest)
     {

@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Tinycast.Features.Settings;
 
 namespace Tinycast;
 
@@ -11,7 +12,7 @@ public sealed class SettingsCoordinator
 
     public Window? Window => _window;
 
-    public void Show()
+    public void Show(SettingsTab? tab = null)
     {
         if (_window is null)
         {
@@ -19,6 +20,8 @@ public sealed class SettingsCoordinator
             _window.Closed += (_, _) => _window = null;
         }
 
+        if (tab is { } selected)
+            _window.SelectTab(selected);
         _window.Activate();
         _core.ApplyAppearance(_window);
     }

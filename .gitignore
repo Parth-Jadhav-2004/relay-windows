@@ -23,4 +23,7 @@ Thumbs.db
 reference/
 /palette-verify.png
 .cursor/
+.env
+.env.local
+!.env.example
 

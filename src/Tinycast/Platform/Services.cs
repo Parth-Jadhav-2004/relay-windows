@@ -362,9 +362,9 @@ internal static class WindowMover
             Command = commandId,
             WindowFrame = frame,
             Screens = WindowInventory.Screens(),
-            Gap = 8,
+            Gap = AppCore.Shared.Settings.WindowGap,
             Step = Memory.NextStep(hwnd, commandId),
-            Cycle = catalog.CyclesOnRepeat ? WindowCycle.Sizes : WindowCycle.Off,
+            Cycle = catalog.CyclesOnRepeat ? ParseCycle(AppCore.Shared.Settings.WindowCycle) : WindowCycle.Off,
             RestoreFrame = Memory.Restore(hwnd),
             LastTileCommand = last,
         };
@@ -374,6 +374,13 @@ internal static class WindowMover
         if (catalog.Kind == WindowCommandKind.Restore)
             Memory.Forget(hwnd);
     }
+
+    static WindowCycle ParseCycle(string value) => value switch
+    {
+        "Off" => WindowCycle.Off,
+        "Displays" => WindowCycle.Displays,
+        _ => WindowCycle.Sizes,
+    };
 }
 
 internal static class CurrencyRateStore

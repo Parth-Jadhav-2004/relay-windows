@@ -79,7 +79,7 @@ public sealed class FileSearchCoordinator
     public IReadOnlyList<PaletteRow> Rows(string query)
     {
         if (!_core.Settings.FileSearchEnabled)
-            return [Hint("file-off", "File search is off", "Enable it in Settings → Features", "\uE721")];
+            return [Hint("file-off", "File search is off", "Enable it in Settings → File Search", "\uE721")];
 
         var ignore = FileSearchService.Compile(_core.Settings.FileSearchIgnorePatterns);
         if (LooksLikePath(query) is { } existing)

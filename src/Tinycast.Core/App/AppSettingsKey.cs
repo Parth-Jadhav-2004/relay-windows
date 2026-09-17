@@ -25,6 +25,9 @@ public static class AppSettingsKey
     public const string NavigationEnabled = "navigationEnabled";
     public const string FileSearchScopes = "fileSearchScopes";
     public const string FileSearchIgnorePatterns = "fileSearchIgnorePatterns";
+    public const string WindowGap = "windowGap";
+    public const string WindowCycle = "windowCycle";
+    public const string EmojiColumns = "emojiColumns";
 
     public static IReadOnlyList<string> All { get; } =
     [
@@ -33,5 +36,6 @@ public static class AppSettingsKey
         McpEnabled, ExtensionsEnabled, QuickActionsEnabled, ClipboardEnabled,
         WindowManagementEnabled, FileSearchEnabled, NotesEnabled, QuicklinksEnabled,
         CustomCommandsEnabled, NavigationEnabled, FileSearchScopes, FileSearchIgnorePatterns,
+        WindowGap, WindowCycle, EmojiColumns,
     ];
 }

@@ -35,6 +35,9 @@ public static class AppPaths
     public static string QuickActionsFile => Path.Combine(Root, "quick-actions.json");
     public static string IconCacheDir => Path.Combine(Root, "icon-cache");
     public static string UpdatesDir => Path.Combine(Root, "updates");
+    public static string EnvFile => Path.Combine(Root, ".env");
+    public static string FallbacksFile => Path.Combine(Root, "fallbacks.json");
+    public static string OnboardingFile => Path.Combine(Root, "onboarding.json");
 
     public static void EnsureRoot()
     {

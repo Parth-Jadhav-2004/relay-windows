@@ -1,4 +1,5 @@
 using Tinycast.Features.Calculator;
+using Tinycast.Features.Calendar;
 using Tinycast.Features.Clipboard;
 using Tinycast.Features.Commands;
 using Tinycast.Features.Emoji;
@@ -112,6 +113,21 @@ public sealed class LauncherCoordinator
                     CopyText: _core.LastSelection));
             }
 
+            if (_core.Settings.CalendarEnabled)
+            {
+                var join = MeetingJoinCard.NextJoinable(_core.Meetings, DateTime.Now);
+                if (join?.Link is not null)
+                {
+                    rows.Insert(0, new PaletteRow(
+                        "meet:" + join.Id,
+                        "Join " + join.Title,
+                        join.Link.Title + "  ·  " + join.Start.ToString("t"),
+                        "\uE716",
+                        "Meetings",
+                        PrimaryAction: "Join"));
+                }
+            }
+
             var favorites = ranked.Where(e => _core.Favorites.IsFavorite(e.Id)).Take(8).ToList();
             foreach (var entry in favorites)
                 rows.Add(ToRow(entry, "Favorites"));
@@ -127,9 +143,52 @@ public sealed class LauncherCoordinator
             return rows;
         }
 
+        if (FallbackCatalog.LooksLikeUrl(query))
+        {
+            rows.Insert(calc is null ? 0 : Math.Min(1, rows.Count), new PaletteRow(
+                FallbackCatalog.Browser,
+                "Open in Browser",
+                FallbackCatalog.BrowserTarget(query),
+                "\uE774",
+                "Browser",
+                PrimaryAction: "Open"));
+        }
+
         foreach (var entry in ranked.Take(40))
             rows.Add(ToRow(entry, SectionFor(entry.Kind)));
+        foreach (var fallback in FallbackRows(query))
+            rows.Add(fallback);
         return rows;
+    }
+
+    IEnumerable<PaletteRow> FallbackRows(string query)
+    {
+        foreach (var spec in _core.Fallbacks.Where(f => f.Enabled))
+        {
+            if (spec.Id == FallbackCatalog.Ai)
+            {
+                if (!_core.Settings.AiEnabled)
+                    continue;
+                yield return new PaletteRow(spec.Id, "Ask AI", query, "\uE99A", "Use with");
+            }
+            else if (spec.Id == FallbackCatalog.Files)
+            {
+                if (!_core.Settings.FileSearchEnabled)
+                    continue;
+                yield return new PaletteRow(spec.Id, "Search Files", query, "\uE721", "Use with");
+            }
+            else if (spec.Id == FallbackCatalog.Shell)
+            {
+                yield return new PaletteRow(spec.Id, "Run Shell Command", query, "\uE756", "Use with");
+            }
+            else if (spec.Id.StartsWith("quicklink:", StringComparison.Ordinal))
+            {
+                var link = _core.Quicklinks.FirstOrDefault(q => q.Id == spec.Id);
+                if (link is null || !_core.Settings.QuicklinksEnabled)
+                    continue;
+                yield return new PaletteRow("fallback-link:" + link.Id, link.Name, query, "\uE71B", "Use with");
+            }
+        }
     }
 
     IEnumerable<AppEntry> BuiltinEntries()
@@ -166,7 +225,8 @@ public sealed class LauncherCoordinator
             entry.Glyph ?? "\uE7C5",
             section,
             entry.Kind,
-            IconPath: entry.IconPath);
+            IconPath: entry.IconPath,
+            ShowActions: entry.Kind == AppEntryKind.Application);
 
     static string SectionFor(AppEntryKind kind) => kind switch
     {
@@ -197,7 +257,7 @@ public sealed class LauncherCoordinator
     IReadOnlyList<PaletteRow> SnippetRows(string query)
     {
         if (!_core.Settings.SnippetsEnabled)
-            return [new PaletteRow("snip-off", "Snippets are off", "Enable them in Settings → Features", "\uE8A5")];
+            return [new PaletteRow("snip-off", "Snippets are off", "Enable them in Settings → Snippets", "\uE8A5")];
         return _core.Snippets.Where(s => query.Length == 0 || s.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(s => new PaletteRow(s.Id, s.Name, s.Keyword, "\uE8A5", "Snippets", AppEntryKind.Snippet, s.Text, false, s.Text))
             .ToList();
@@ -206,7 +266,7 @@ public sealed class LauncherCoordinator
     IReadOnlyList<PaletteRow> QuicklinkRows(string query)
     {
         if (!_core.Settings.QuicklinksEnabled)
-            return [new PaletteRow("link-off", "Quicklinks are off", "Enable them in Settings → Features", "\uE71B")];
+            return [new PaletteRow("link-off", "Quicklinks are off", "Enable them in Settings → Quicklinks", "\uE71B")];
         return _core.Quicklinks.Where(s => query.Length == 0 || s.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(s => new PaletteRow(s.Id, s.Name, s.Destination, "\uE71B", "Quicklinks", AppEntryKind.Quicklink))
             .ToList();
@@ -215,7 +275,7 @@ public sealed class LauncherCoordinator
     IReadOnlyList<PaletteRow> SwitchRows(string query)
     {
         if (!_core.Settings.NavigationEnabled)
-            return [new PaletteRow("nav-off", "Navigation is off", "Enable it in Settings → Features", "\uE8A7")];
+            return [new PaletteRow("nav-off", "Navigation is off", "Enable it in Settings → Navigation", "\uE8A7")];
         return WindowSwitchQuery.Filter(WindowInventory.Enumerate(), query)
             .Select(w => new PaletteRow("switch:" + w.Hwnd.ToInt64(), w.Title, w.ProcessName, "\uE8A7", "Windows"))
             .ToList();
@@ -269,7 +329,7 @@ public sealed class LauncherCoordinator
     IReadOnlyList<PaletteRow> ScheduleRows(string query)
     {
         if (!_core.Settings.CalendarEnabled)
-            return [new PaletteRow("cal-off", "Calendar is off", "Enable it in Settings → Features", "\uE787")];
+            return [new PaletteRow("cal-off", "Calendar is off", "Enable it in Settings → Calendar", "\uE787")];
         var rows = _core.Meetings
             .Where(m => query.Length == 0 || m.Title.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(m => new PaletteRow("meet:" + m.Id, m.Title, m.Start.ToString("g") + (m.Link is null ? "" : " · " + m.Link.Title), "\uE787", "Schedule"))
@@ -284,7 +344,7 @@ public sealed class LauncherCoordinator
         var rows = _core.Chat.Select((m, i) => new PaletteRow("ai:" + i, m.Role, m.Content, "\uE99A", "Chat", Preview: m.Content)).ToList();
         if (!_core.Settings.AiEnabled)
         {
-            rows.Insert(0, new PaletteRow("ai-off", "AI is off", "Enable it in Settings → Features", "\uE99A", "Chat"));
+            rows.Insert(0, new PaletteRow("ai-off", "AI is off", "Enable it in Settings → AI", "\uE99A", "Chat"));
             return rows;
         }
 
@@ -336,6 +396,62 @@ public sealed class LauncherCoordinator
             var previous = TargetHwnd();
             _core.PaletteCoordinator.HidePalette();
             Paster.PasteText(glyph, previous);
+            return;
+        }
+
+        if (id == FallbackCatalog.Browser)
+        {
+            _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+            ProcessLauncher.OpenUri(FallbackCatalog.BrowserTarget(_core.Palette.Query));
+            return;
+        }
+
+        if (id == FallbackCatalog.Ai)
+        {
+            _core.PaletteCoordinator.ShowPalette(PaletteMode.AiChat, seeding: _core.Palette.Query);
+            return;
+        }
+
+        if (id == FallbackCatalog.Files)
+        {
+            _core.PaletteCoordinator.ShowPalette(PaletteMode.FileSearch, seeding: _core.Palette.Query);
+            return;
+        }
+
+        if (id == FallbackCatalog.Shell)
+        {
+            var command = _core.Palette.Query.Trim();
+            if (command.Length == 0)
+                return;
+            var choice = await _core.Confirm(new DialogRequest(
+                "Run this command?",
+                "\uE756",
+                [new DialogAction("Cancel", DialogActionRole.Cancel), new DialogAction("Run")],
+                1, 0, command));
+            if (choice != 1)
+                return;
+            _core.PaletteCoordinator.HidePalette();
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c " + command)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                });
+            }
+            catch (Exception ex) { _core.ShowMessage(ex.Message, DialogTone.Danger); }
+            return;
+        }
+
+        if (id.StartsWith("fallback-link:", StringComparison.Ordinal))
+        {
+            var link = _core.Quicklinks.FirstOrDefault(q => q.Id == id["fallback-link:".Length..]);
+            if (link is not null)
+            {
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                ProcessLauncher.Open(QuicklinkDestination.Expand(link.Destination, _core.Palette.Query));
+            }
+
             return;
         }
 
@@ -570,7 +686,7 @@ public sealed class LauncherCoordinator
                 break;
             case BuiltinCommands.Backup:
                 _core.PaletteCoordinator.HidePalette();
-                _core.ExportBackup();
+                _core.SettingsCoordinator.Show(Tinycast.Features.Settings.SettingsTab.Backup);
                 break;
             case BuiltinCommands.Updates:
                 _core.PaletteCoordinator.HidePalette();

@@ -10,6 +10,7 @@ using Tinycast.Features.Commands;
 using Tinycast.Features.HotKeys;
 using Tinycast.Features.Launcher;
 using Tinycast.Features.Quicklinks;
+using Tinycast.Features.Onboarding;
 using Tinycast.Features.Settings;
 using Tinycast.Features.Snippets;
 using Tinycast.Features.WindowManagement;
@@ -31,6 +32,7 @@ public sealed class AppCore
     NotesWindow? _notes;
     SupportWindow? _support;
     CameraWindow? _camera;
+    OnboardingWindow? _onboarding;
     DateTime _installedAt = DateTime.UtcNow;
     DateTime? _supportShown;
     DispatcherQueueTimer? _meetingTimer;
@@ -66,6 +68,7 @@ public sealed class AppCore
     public List<HotKeyBinding> HotKeys { get; private set; } = [];
     public List<McpServerSpec> McpServers { get; private set; } = [];
     public List<QuickAction> QuickActions { get; private set; } = [];
+    public List<FallbackSpec> Fallbacks { get; private set; } = [];
     public string LastSelection { get; private set; } = "";
     public AiConfig Ai { get; private set; } = new();
 
@@ -147,7 +150,9 @@ public sealed class AppCore
         RefreshApps();
         _ = RefreshCalendarAsync();
         StartMeetingWatch();
+        GitHubAuth.MigrateVault();
         ScheduleUpdateCheck();
+        MaybeShowOnboarding();
 
         Log.Write($"Started {AppPaths.ChannelId} hwnd=0x{hwnd.ToInt64():X}");
         MaybeRemindSupport();
@@ -169,6 +174,7 @@ public sealed class AppCore
         McpServers = McpHost.Load().ToList();
         Chat = JsonList.Load<AiChatMessage>(AppPaths.ChatFile);
         QuickActions = JsonList.Load<QuickAction>(AppPaths.QuickActionsFile);
+        RefreshFallbacks();
         Ai = AiClient.Load();
         Notes = LoadNotes();
         LoadSupportStamp();
@@ -340,6 +346,16 @@ public sealed class AppCore
         _hotKeys?.ReplaceBindings(HotKeys);
     }
     public void PersistLayouts() => JsonList.Save(AppPaths.LayoutsFile, Layouts);
+    public void PersistFallbacks() => JsonList.Save(AppPaths.FallbacksFile, Fallbacks);
+    public void RefreshFallbacks()
+    {
+        var argumentLinks = Quicklinks
+            .Where(q => q.Destination.Contains("{argument}", StringComparison.OrdinalIgnoreCase)
+                || q.Destination.Contains("{query}", StringComparison.OrdinalIgnoreCase))
+            .Select(q => q.Id);
+        Fallbacks = FallbackCatalog.Merge(JsonList.Load<FallbackSpec>(AppPaths.FallbacksFile), argumentLinks);
+        PersistFallbacks();
+    }
     public void PersistChat() => JsonList.Save(AppPaths.ChatFile, Chat);
     public void PersistQuickActions() => JsonList.Save(AppPaths.QuickActionsFile, QuickActions);
     public void PersistMcp() => McpHost.Save(McpServers);
@@ -357,6 +373,7 @@ public sealed class AppCore
         ApplyTheme(_notes, theme);
         ApplyTheme(_support, theme);
         ApplyTheme(_camera, theme);
+        ApplyTheme(_onboarding, theme);
         ApplyTheme(SettingsCoordinator.Window, theme);
         PaletteWindow?.ApplySurface();
     }
@@ -580,15 +597,11 @@ public sealed class AppCore
 
     void ScheduleUpdateCheck()
     {
-#if DEBUG
-        return;
-#else
         var timer = PaletteWindow!.DispatcherQueue.CreateTimer();
         timer.Interval = TimeSpan.FromSeconds(30);
         timer.IsRepeating = false;
         timer.Tick += (_, _) => _ = QuietUpdateCheck();
         timer.Start();
-#endif
     }
 
     async Task QuietUpdateCheck()
@@ -610,10 +623,6 @@ public sealed class AppCore
     {
         try
         {
-#if DEBUG
-            ShowMessage("Dev builds do not install GitHub updates. Installed " + UpdatesClient.InstalledLabel + ".");
-            return;
-#endif
             ShowMessage("Checking GitHub Releases…");
             var latest = await UpdatesClient.FetchLatestAsync();
             if (latest.Version <= UpdatesClient.Installed)
@@ -621,6 +630,11 @@ public sealed class AppCore
                 ShowMessage("You’re on " + UpdatesClient.InstalledLabel + ". Latest is " + latest.Tag + ".");
                 return;
             }
+
+#if DEBUG
+            ShowMessage("Update available: " + latest.Tag + ". Dev builds do not install GitHub updates. Installed " + UpdatesClient.InstalledLabel + ".");
+            return;
+#endif
 
             var notes = string.IsNullOrWhiteSpace(latest.Notes) ? latest.Name : latest.Notes;
             if (notes.Length > 600)
@@ -733,6 +747,43 @@ public sealed class AppCore
     public void ResumeHotKeys() => _hotKeys?.ReplaceBindings(HotKeys);
     public void RecordHotKey(Action<HotKeyChord> done) => _hotKeys?.BeginRecord(done);
 
+    public void MaybeShowOnboarding()
+    {
+        if (File.Exists(AppPaths.OnboardingFile))
+            return;
+        if (File.Exists(AppPaths.SettingsFile))
+        {
+            CompleteOnboarding();
+            return;
+        }
+
+        PaletteWindow?.DispatcherQueue.TryEnqueue(() => ShowOnboarding());
+    }
+
+    public void ShowOnboarding(bool force = false)
+    {
+        if (!force && File.Exists(AppPaths.OnboardingFile))
+            return;
+        if (_onboarding is null)
+        {
+            _onboarding = new OnboardingWindow(this);
+            _onboarding.Closed += (_, _) => _onboarding = null;
+        }
+
+        ApplyAppearance(_onboarding);
+        _onboarding.Activate();
+    }
+
+    public void CompleteOnboarding()
+    {
+        AppPaths.EnsureRoot();
+        File.WriteAllText(AppPaths.OnboardingFile, JsonSerializer.Serialize(new OnboardingState
+        {
+            Completed = true,
+            CompletedAt = DateTime.UtcNow,
+        }));
+    }
+
     void ExpandSnippetKeyword(string id, string keyword)
     {
         var snippet = Snippets.FirstOrDefault(s => s.Id == id);
@@ -745,15 +796,22 @@ public sealed class AppCore
 
     public bool TryPasteSnippet(StoredSnippet snippet, IntPtr previousHwnd, bool hidePalette = true, int backspace = 0)
     {
+        var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var declared = SnippetTemplateEngine.DeclaredArguments(snippet.Text);
+        if (declared.Count > 0 && !string.IsNullOrWhiteSpace(Palette.Query)
+            && !Palette.Query.Equals(snippet.Name, StringComparison.OrdinalIgnoreCase)
+            && !Palette.Query.Equals(snippet.Keyword, StringComparison.OrdinalIgnoreCase))
+            args[declared[0].Name] = Palette.Query;
+
         var expanded = SnippetTemplateEngine.Expand(snippet.Text, new ExpansionContext
         {
             ClipboardHistory = ClipboardStore.Search("").Select(c => c.Text).ToList(),
             Selection = LastSelection,
             Now = DateTime.Now,
-        }, snippets: Snippets);
+        }, args, Snippets);
         if (expanded.MissingArguments.Count > 0)
         {
-            ShowMessage("This snippet needs an argument.");
+            ShowMessage("Type the argument in the palette, then run the snippet.");
             return false;
         }
 

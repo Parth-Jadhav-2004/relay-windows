@@ -30,6 +30,9 @@ backup coverage, and that Core has no WinUI/P/Invoke.
 | Debug | `%APPDATA%\Tinycast\com.tinycast.windows.dev\` |
 | Release | `%APPDATA%\Tinycast\com.tinycast.windows\` |
 
+GitHub Releases for this private repo need `TINYCAST_GITHUB_TOKEN` in that folder’s `.env`
+(see `.env.example`). Settings → About only checks for updates; it does not store the token.
+
 ## Spec
 
 `reference/` is a clone of https://github.com/abue-ammar/tinycast. Treat it as documentation.

@@ -8,16 +8,26 @@ namespace Tinycast;
 public sealed class ClipboardCoordinator
 {
     readonly AppCore _core;
+    public ClipboardListFilter Filter { get; private set; } = ClipboardListFilter.All;
 
     public ClipboardCoordinator(AppCore core) => _core = core;
+
+    public void CycleFilter()
+    {
+        Filter = ClipboardListFilterLogic.Next(Filter);
+        _core.Palette.Notify();
+    }
 
     public IReadOnlyList<PaletteRow> Rows(string query)
     {
         if (!_core.Settings.ClipboardEnabled)
-            return [new PaletteRow("clip-off", "Clipboard history is off", "Enable it in Settings → Features", "\uE16D")];
+            return [new PaletteRow("clip-off", "Clipboard history is off", "Enable it in Settings → Clipboard", "\uE16D")];
 
         var now = DateTime.Now;
-        return _core.ClipboardStore.Search(query).Select(item => ToRow(item, now)).ToList();
+        return _core.ClipboardStore.Search(query)
+            .Where(item => ClipboardListFilterLogic.Matches(item, Filter))
+            .Select(item => ToRow(item, now))
+            .ToList();
     }
 
     public ClipboardItem? ItemFor(string id)
