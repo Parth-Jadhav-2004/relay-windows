@@ -62,18 +62,30 @@ public sealed class ClipboardCoordinator
             return false;
 
         var copy = inverted;
+        if (string.Equals(_core.Settings.ClipboardDefaultAction, "copy", StringComparison.OrdinalIgnoreCase))
+            copy = !inverted;
         var previous = TargetHwnd();
         if (copy)
         {
             Copy(item);
-            _core.PaletteCoordinator.HidePalette(restoreFocus: true);
+            if (!_core.Settings.ClipboardKeepOpen)
+                _core.PaletteCoordinator.HidePalette(restoreFocus: true);
             _core.ShowMessage("Copied");
             return true;
         }
 
-        _core.PaletteCoordinator.HidePalette(restoreFocus: true);
+        if (!_core.Settings.ClipboardKeepOpen)
+            _core.PaletteCoordinator.HidePalette(restoreFocus: true);
         Paste(item, previous);
         return true;
+    }
+
+    public bool ActivatePinned(int index)
+    {
+        var pinned = _core.ClipboardStore.Pinned(9);
+        if (index < 0 || index >= pinned.Count)
+            return false;
+        return Activate("clip:" + pinned[index].Id);
     }
 
     public void Copy(ClipboardItem item)
@@ -114,6 +126,21 @@ public sealed class ClipboardCoordinator
         var fill = thumb is not null;
         if (thumb is null && item.Kind == ClipboardKind.File && item.FilePath is not null)
             thumb = ShellIcons.FromFile(item.FilePath);
+        if (item.Kind == ClipboardKind.Text && ClipboardColor.TryParse(item.Text, out var color))
+        {
+            return new PaletteRow(
+                "clip:" + item.Id,
+                color.Hex,
+                color.Css,
+                "\uE790",
+                ClipboardPresentation.Section(item, now),
+                AppEntryKind.Command,
+                item.Text,
+                false,
+                item.Text,
+                PrimaryAction: "Paste",
+                ShowActions: true);
+        }
         return new PaletteRow(
             "clip:" + item.Id,
             ClipboardPresentation.ListTitle(item),

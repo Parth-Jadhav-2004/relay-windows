@@ -114,7 +114,7 @@ internal static class CalendarService
                 var startLocal = a.StartTime.LocalDateTime;
                 var end = startLocal + a.Duration;
                 var link = MeetingLink.Detect([a.Subject, a.Location, a.Details]);
-                return new MeetingEvent(a.LocalId ?? Guid.NewGuid().ToString("n"), a.Subject ?? "Event", startLocal, end, link, a.AllDay);
+                return new MeetingEvent(a.LocalId ?? Guid.NewGuid().ToString("n"), a.Subject ?? "Event", startLocal, end, link, a.AllDay, a.CalendarId);
             }).ToList();
         }
         catch (Exception ex)

@@ -222,6 +222,7 @@ public sealed class FavoritesStore : JsonKeyedStore<bool>
     public FavoritesStore(string path) : base(path) { }
     public bool IsFavorite(string id) => Items.TryGetValue(id, out var value) && value;
     public void Toggle(string id) => Set(id, !IsFavorite(id));
+    public IReadOnlyList<string> OrderedIds() => Items.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
 }
 
 public sealed class AliasStore : JsonKeyedStore<string>

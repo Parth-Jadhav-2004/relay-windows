@@ -21,6 +21,7 @@ public static class AppPaths
     public static string AliasesFile => Path.Combine(Root, "aliases.json");
     public static string VisibilityFile => Path.Combine(Root, "visibility.json");
     public static string SnippetsFile => Path.Combine(Root, "snippets.json");
+    public static string SnippetsDir => Path.Combine(Root, "snippets");
     public static string QuicklinksFile => Path.Combine(Root, "quicklinks.json");
     public static string CustomCommandsFile => Path.Combine(Root, "custom-commands.json");
     public static string CalcHistoryFile => Path.Combine(Root, "calc-history.json");
@@ -44,6 +45,7 @@ public static class AppPaths
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(ClipboardDir);
         Directory.CreateDirectory(NotesDir);
+        Directory.CreateDirectory(SnippetsDir);
         Directory.CreateDirectory(IconCacheDir);
         Directory.CreateDirectory(UpdatesDir);
     }

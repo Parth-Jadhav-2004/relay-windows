@@ -42,6 +42,8 @@ public static class CalcEngine
             return null;
         if (query.All(static c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z')))
             return null;
+        if (CalcColor.Evaluate(query) is { } color)
+            return color;
 
         if (CalcDateTime.Evaluate(query, context) is { } date)
             return date;

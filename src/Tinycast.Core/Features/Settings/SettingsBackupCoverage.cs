@@ -24,6 +24,20 @@ public static class SettingsBackupCoverage
         AppSettingsKey.WindowGap,
         AppSettingsKey.WindowCycle,
         AppSettingsKey.EmojiColumns,
+        AppSettingsKey.ClipboardOcrEnabled,
+        AppSettingsKey.ClipboardRetentionDays,
+        AppSettingsKey.ClipboardKeepOpen,
+        AppSettingsKey.ClipboardDefaultAction,
+        AppSettingsKey.ClipboardIgnoredApps,
+        AppSettingsKey.EmojiSkinTone,
+        AppSettingsKey.CompactPalette,
+        AppSettingsKey.PaletteRememberPosition,
+        AppSettingsKey.PalettePopToRootSeconds,
+        AppSettingsKey.PaletteEscapeClearsQuery,
+        AppSettingsKey.CalendarExcludedIds,
+        AppSettingsKey.NavigationExcludedApps,
+        AppSettingsKey.PaletteLeft,
+        AppSettingsKey.PaletteTop,
     };
 
     public static IReadOnlySet<string> ExternallySourced { get; } = new HashSet<string>

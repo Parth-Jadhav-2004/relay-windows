@@ -32,8 +32,8 @@ public sealed partial class PaletteWindow : Window
         InitializeComponent();
         SystemBackdrop = null;
         WindowChrome.ApplyPaletteChrome(this, Theme.Radius.Panel, true);
-        WindowChrome.ResizeDips(this, Theme.Size.PanelWidth, Theme.Size.PanelHeight, client: true);
-        WindowChrome.PlacePalette(this);
+        ResizePalette();
+        WindowChrome.PlacePalette(this, _core.Settings);
         ApplySurface();
         Root.SizeChanged += (_, _) => WindowChrome.ApplyRoundRegion(this, Theme.Radius.Panel);
         _core.Palette.Changed += () => DispatcherQueue.TryEnqueue(Render);
@@ -66,8 +66,8 @@ public sealed partial class PaletteWindow : Window
                 _previousHwnd = front;
         }
         ApplySurface();
-        WindowChrome.ResizeDips(this, Theme.Size.PanelWidth, Theme.Size.PanelHeight, client: true);
-        WindowChrome.PlacePalette(this);
+        ResizePalette();
+        WindowChrome.PlacePalette(this, _core.Settings);
         Render();
         Activate();
         WindowChrome.RefreshPaletteChrome(this, Theme.Radius.Panel, IsDark);
@@ -80,9 +80,23 @@ public sealed partial class PaletteWindow : Window
 
     public void HidePalette(bool restoreFocus)
     {
+        if (_core.Settings.PaletteRememberPosition)
+        {
+            var pos = AppWindow.Position;
+            _core.Settings.PaletteLeft = pos.X;
+            _core.Settings.PaletteTop = pos.Y;
+            _core.Persist();
+        }
+
         AppWindow.Hide();
         if (restoreFocus && _previousHwnd != IntPtr.Zero && _previousHwnd != Hwnd)
             NativeMethods.SetForegroundWindow(_previousHwnd);
+    }
+
+    public void ResizePalette()
+    {
+        var (width, height) = Theme.Size.PalettePanel(_core.Settings.InterfaceSize, _core.Settings.CompactPalette);
+        WindowChrome.ResizeDips(this, width, height, client: true);
     }
 
     static bool IsCurrentProcess(IntPtr hwnd)
@@ -209,10 +223,14 @@ public sealed partial class PaletteWindow : Window
         }
 
         var selected = _rows[PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count)];
-        var split = _core.Palette.Mode == PaletteMode.Clipboard && selected.Id.StartsWith("clip:", StringComparison.Ordinal);
-        ApplyClipboardSplit(split, dark);
-        if (split && _core.ClipboardCoordinator.ItemFor(selected.Id) is { } clip)
+        var clipSplit = _core.Palette.Mode == PaletteMode.Clipboard && selected.Id.StartsWith("clip:", StringComparison.Ordinal);
+        var filePath = _core.Palette.Mode == PaletteMode.FileSearch ? _core.FileSearchCoordinator.PathOf(selected.Id) : null;
+        var fileSplit = filePath is not null && File.Exists(filePath);
+        ApplyClipboardSplit(clipSplit || fileSplit, dark);
+        if (clipSplit && _core.ClipboardCoordinator.ItemFor(selected.Id) is { } clip)
             ClipboardPreviewPane.Populate(PreviewHost, clip, dark);
+        else if (fileSplit && filePath is not null)
+            FilePreviewPane.Populate(PreviewHost, filePath, dark);
         else
         {
             PreviewHost.Children.Clear();
@@ -624,11 +642,9 @@ public sealed partial class PaletteWindow : Window
 
         if (e.Key == VirtualKey.Down)
         {
-            var step = _core.Palette.Mode == PaletteMode.Emoji
+            MoveSelection(_core.Palette.Mode == PaletteMode.Emoji
                 ? Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
-                : 1;
-            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, step, _rows.Count);
-            _core.Palette.Notify();
+                : 1);
             e.Handled = true;
             return;
         }
@@ -642,11 +658,9 @@ public sealed partial class PaletteWindow : Window
                 return;
             }
 
-            var step = _core.Palette.Mode == PaletteMode.Emoji
-                ? Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
-                : 1;
-            _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, -step, _rows.Count);
-            _core.Palette.Notify();
+            MoveSelection(_core.Palette.Mode == PaletteMode.Emoji
+                ? -Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
+                : -1);
             e.Handled = true;
             return;
         }
@@ -694,6 +708,51 @@ public sealed partial class PaletteWindow : Window
             _core.ClipboardCoordinator.CycleFilter();
             e.Handled = true;
             return;
+        }
+
+        if (e.Key == VirtualKey.N && NativeMethods.IsKeyDown(NativeMethods.VkControl))
+        {
+            MoveSelection(1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.P && NativeMethods.IsKeyDown(NativeMethods.VkControl))
+        {
+            MoveSelection(-1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.V && NativeMethods.IsKeyDown(NativeMethods.VkControl) && _core.Palette.Mode == PaletteMode.FileSearch && _rows.Count > 0)
+        {
+            var row = _rows[PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count)];
+            _core.FileSearchCoordinator.PasteIntoApp(row.Id);
+            e.Handled = true;
+            return;
+        }
+
+        if (!NativeMethods.IsKeyDown(NativeMethods.VkControl)
+            && !NativeMethods.IsKeyDown(NativeMethods.VkMenu)
+            && DigitIndex(e.Key) is { } digit)
+        {
+            if (_core.Palette.Mode == PaletteMode.Clipboard && string.IsNullOrEmpty(_core.Palette.Query))
+            {
+                if (_core.ClipboardCoordinator.ActivatePinned(digit - 1))
+                    e.Handled = true;
+                return;
+            }
+
+            if (_core.Palette.Mode is PaletteMode.Launcher or PaletteMode.Emoji
+                && string.IsNullOrEmpty(_core.Palette.Query)
+                && _rows.Count > 0)
+            {
+                var index = Math.Min(digit - 1, _rows.Count - 1);
+                _core.Palette.Selection = index;
+                ActivateSelection();
+                e.Handled = true;
+                return;
+            }
         }
 
         if (e.Key == VirtualKey.Delete && _core.Palette.Mode == PaletteMode.FileSearch && _rows.Count > 0)
@@ -759,6 +818,26 @@ public sealed partial class PaletteWindow : Window
         var index = PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count);
         _core.LauncherCoordinator.Activate(_rows[index].Id, reveal);
     }
+
+    void MoveSelection(int step)
+    {
+        _core.Palette.Selection = PaletteRowIndex.Move(_core.Palette.Selection, step, _rows.Count);
+        _core.Palette.Notify();
+    }
+
+    static int? DigitIndex(VirtualKey key) => key switch
+    {
+        VirtualKey.Number1 or VirtualKey.NumberPad1 => 1,
+        VirtualKey.Number2 or VirtualKey.NumberPad2 => 2,
+        VirtualKey.Number3 or VirtualKey.NumberPad3 => 3,
+        VirtualKey.Number4 or VirtualKey.NumberPad4 => 4,
+        VirtualKey.Number5 or VirtualKey.NumberPad5 => 5,
+        VirtualKey.Number6 or VirtualKey.NumberPad6 => 6,
+        VirtualKey.Number7 or VirtualKey.NumberPad7 => 7,
+        VirtualKey.Number8 or VirtualKey.NumberPad8 => 8,
+        VirtualKey.Number9 or VirtualKey.NumberPad9 => 9,
+        _ => null,
+    };
 
     void OnBackClick(object sender, RoutedEventArgs e)
     {

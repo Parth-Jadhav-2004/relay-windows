@@ -14,7 +14,7 @@ public sealed partial class SupportWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         WindowChrome.ResizeDips(this, 520, 280);
-        IdentityBlock.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel;
+        IdentityBlock.Text = UpdatesClient.InstalledLabel;
     }
 
     void OnGithub(object sender, RoutedEventArgs e) =>

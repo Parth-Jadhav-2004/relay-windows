@@ -30,6 +30,13 @@ internal sealed class TrayIcon : IDisposable
         };
     }
 
+    public void SetTip(string tip)
+    {
+        _data.SzTip = tip.Length > 127 ? tip[..127] : tip;
+        if (_added)
+            NativeMethods.Shell_NotifyIcon(NativeMethods.NimModify, ref _data);
+    }
+
     public void Add()
     {
         if (_added)

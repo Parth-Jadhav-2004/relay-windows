@@ -26,18 +26,29 @@ jobs:
           if ($ver -notmatch '^\d+\.\d+\.\d+') { throw "Tag $tag is not vMAJOR.MINOR.PATCH" }
           dotnet publish src/Tinycast/Tinycast.csproj -c Release -p:Platform=x64 --self-contained true -p:Version=$ver -p:AssemblyVersion=$ver.0 -p:FileVersion=$ver.0 -p:InformationalVersion=$ver -o publish
 
+      - name: Publish self-contained arm64
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart("v")
+          dotnet publish src/Tinycast/Tinycast.csproj -c Release -p:Platform=ARM64 -r win-arm64 --self-contained true -p:Version=$ver -p:AssemblyVersion=$ver.0 -p:FileVersion=$ver.0 -p:InformationalVersion=$ver -o publish-arm64
+
       - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath Tinycast-windows-x64.zip
+        run: |
+          Compress-Archive -Path publish\* -DestinationPath Tinycast-windows-x64.zip
+          Compress-Archive -Path publish-arm64\* -DestinationPath Tinycast-windows-arm64.zip
 
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: Tinycast-windows-x64.zip
+          files: |
+            Tinycast-windows-x64.zip
+            Tinycast-windows-arm64.zip
           body: |
-            Self-contained Tinycast for Windows (x64).
+            Self-contained Tinycast for Windows (x64 and arm64).
 
             Settings → About turns Check for updates into Download and restart.
 
             <!-- tinycast:install -->
-            Or unzip `Tinycast-windows-x64.zip` into `%LOCALAPPDATA%\Programs\Tinycast`.
+            Or unzip `Tinycast-windows-x64.zip` or `Tinycast-windows-arm64.zip` into `%LOCALAPPDATA%\Programs\Tinycast`.

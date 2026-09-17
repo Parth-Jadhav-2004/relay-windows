@@ -260,7 +260,7 @@ public static class FileBrowse
     }
 }
 
-public sealed record WindowSwitchEntry(nint Hwnd, string Title, string ProcessName, bool Minimized);
+public sealed record WindowSwitchEntry(nint Hwnd, string Title, string ProcessName, bool Minimized, string? Path = null);
 
 public static class WindowSwitchQuery
 {

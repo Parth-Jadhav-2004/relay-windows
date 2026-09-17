@@ -34,6 +34,23 @@ public static class Theme
     {
         public const double PanelWidth = 750;
         public const double PanelHeight = 475;
+        public const double CompactPanelWidth = 620;
+        public const double CompactPanelHeight = 360;
+
+        public static double InterfaceScale(string size) => size switch
+        {
+            "compact" => 0.9,
+            "large" => 1.12,
+            _ => 1,
+        };
+
+        public static (double Width, double Height) PalettePanel(string interfaceSize, bool compact)
+        {
+            var scale = InterfaceScale(interfaceSize);
+            var width = (compact ? CompactPanelWidth : PanelWidth) * scale;
+            var height = (compact ? CompactPanelHeight : PanelHeight) * scale;
+            return (width, height);
+        }
         public const double HeaderHeight = 44;
         public const double HeaderPadding = 10;
         public const double BottomBarHeight = 52;
@@ -44,6 +61,7 @@ public static class Theme
         public const double SettingsWindowWidth = 900;
         public const double SettingsWindowHeight = 700;
         public const double SettingsSidebar = 215;
+        public const double SettingsSidebarScrollGutter = 16;
         public const double DialogWidth = 420;
         public const double DialogIcon = 32;
         public const double HudMaxWidth = 420;

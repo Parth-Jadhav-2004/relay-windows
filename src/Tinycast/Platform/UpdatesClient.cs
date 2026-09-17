@@ -38,9 +38,15 @@ internal static class UpdatesClient
         }
     }
 
-    public static string InstalledLabel =>
-        typeof(UpdatesClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-        ?? Installed.ToString();
+    public static string InstalledLabel
+    {
+        get
+        {
+            var raw = typeof(UpdatesClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            var display = UpdateRelease.DisplayVersion(raw);
+            return display.Length > 0 ? display : Installed.ToString();
+        }
+    }
 
     public static async Task<GitHubRelease> FetchLatestAsync()
     {

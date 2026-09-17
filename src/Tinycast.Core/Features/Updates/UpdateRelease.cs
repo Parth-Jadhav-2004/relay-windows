@@ -12,6 +12,14 @@ public static class UpdateRelease
         _ => "Tinycast-windows-x64.zip",
     };
 
+    public static string DisplayVersion(string? informational)
+    {
+        if (string.IsNullOrWhiteSpace(informational))
+            return "";
+        var plus = informational.IndexOf('+');
+        return (plus >= 0 ? informational[..plus] : informational).Trim();
+    }
+
     public static Version? ParseTag(string tag)
     {
         var trimmed = tag.Trim().TrimStart('v', 'V');

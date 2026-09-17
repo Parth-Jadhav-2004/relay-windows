@@ -9,23 +9,30 @@
     </Window.SystemBackdrop>
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="215" />
+            <ColumnDefinition Width="231" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Grid Padding="10,12,8,12">
+        <Grid Padding="10,12,0,12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <TextBox
                 x:Name="SettingsSearch"
-                Margin="0,0,0,8"
+                Margin="0,0,16,8"
                 PlaceholderText="Search"
                 TextChanged="OnSettingsSearch" />
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="SidebarHost" Spacing="2" />
+            <ScrollViewer
+                Grid.Row="1"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="SidebarHost" Margin="0,0,16,0" Spacing="2" />
             </ScrollViewer>
         </Grid>
+        <Border
+            Width="1"
+            HorizontalAlignment="Right"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
         <ScrollViewer Grid.Column="1" Padding="28,18,28,32">
             <Grid>
                 <StackPanel x:Name="GeneralPane" Spacing="16">
@@ -68,13 +75,62 @@
                                 <TextBlock Text="Background transparency" VerticalAlignment="Center" />
                                 <Slider x:Name="TransparencySlider" Grid.Column="1" Width="160" Maximum="100" Minimum="-100" StepFrequency="50" TickFrequency="50" ValueChanged="OnTransparencyChanged" />
                             </Grid>
+                            <Grid Padding="14,12" ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Interface size" VerticalAlignment="Center" />
+                                <ComboBox x:Name="InterfaceSizeBox" Grid.Column="1" Width="140" SelectionChanged="OnInterfaceSizeChanged">
+                                    <ComboBoxItem Content="Compact" Tag="compact" />
+                                    <ComboBoxItem Content="Standard" Tag="standard" />
+                                    <ComboBoxItem Content="Large" Tag="large" />
+                                </ComboBox>
+                            </Grid>
+                            <Grid Padding="14,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Compact palette" VerticalAlignment="Center" />
+                                <ToggleSwitch x:Name="CompactPaletteSwitch" Grid.Column="1" OffContent="" OnContent="" Toggled="OnPaletteChromeChanged" />
+                            </Grid>
+                            <Grid Padding="14,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Remember palette position" VerticalAlignment="Center" />
+                                <ToggleSwitch x:Name="RememberPositionSwitch" Grid.Column="1" OffContent="" OnContent="" Toggled="OnPaletteChromeChanged" />
+                            </Grid>
+                            <Grid Padding="14,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Escape clears the query first" VerticalAlignment="Center" />
+                                <ToggleSwitch x:Name="EscapeClearsSwitch" Grid.Column="1" OffContent="" OnContent="" Toggled="OnPaletteChromeChanged" />
+                            </Grid>
+                            <Grid Padding="14,12" ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Pop to root after (seconds, 0 = immediately)" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                <NumberBox x:Name="PopToRootBox" Grid.Column="1" Width="100" Maximum="120" Minimum="0" SpinButtonPlacementMode="Inline" ValueChanged="OnPopToRootChanged" />
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>
 
                 <StackPanel x:Name="PermissionsPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Permissions" />
-                    <Button Click="OnRequestCalendar" Content="Request calendar access" />
+                    <TextBlock x:Name="PermissionsStatus" TextWrapping="Wrap" Opacity="0.7" />
+                    <Button Click="OnRequestCalendar" Content="Request calendar access" HorizontalAlignment="Left" />
+                    <Button Click="OnOpenPrivacyCalendar" Content="Open Calendar privacy" HorizontalAlignment="Left" />
+                    <Button Click="OnOpenPrivacyCamera" Content="Open Camera privacy" HorizontalAlignment="Left" />
+                    <Button Click="OnOpenPrivacyMicrophone" Content="Open Microphone privacy" HorizontalAlignment="Left" />
+                    <Button Click="OnOpenWindowsSettings" Content="Open Windows Settings" HorizontalAlignment="Left" />
                 </StackPanel>
 
                 <StackPanel x:Name="HotkeysPane" Spacing="12" Visibility="Collapsed">
@@ -91,6 +147,7 @@
                     </ComboBox>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnRecordHotKey" Content="Record chord" />
+                        <Button Click="OnRecordSelectedHotKey" Content="Rebind selected" />
                         <Button Click="OnAddHotKey" Content="Add binding" />
                         <Button Click="OnRemoveHotKey" Content="Remove selected" />
                     </StackPanel>
@@ -125,6 +182,7 @@
                     <ListView x:Name="CustomCommandsList" Height="200" />
                     <TextBox x:Name="CmdNameBox" PlaceholderText="Name" />
                     <TextBox x:Name="CmdFileBox" PlaceholderText="Executable path" />
+                    <TextBox x:Name="CmdArgsBox" PlaceholderText="Arguments, space-separated" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnAddCustom" Content="Add" />
                         <Button Click="OnRemoveCustom" Content="Remove selected" />
@@ -136,10 +194,12 @@
                     <ToggleSwitch x:Name="QuicklinksSwitch" OffContent="" OnContent="" Header="Enable Quicklinks" Toggled="OnFeatureToggled" />
                     <ListView x:Name="QuicklinksList" Height="200" />
                     <TextBox x:Name="LinkNameBox" PlaceholderText="Name" />
-                    <TextBox x:Name="LinkDestBox" PlaceholderText="URL or path ({argument})" />
+                    <TextBox x:Name="LinkDestBox" PlaceholderText="URL or path ({argument} {selection} {clipboard} {date})" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnAddQuicklink" Content="Add" />
                         <Button Click="OnRemoveQuicklink" Content="Remove selected" />
+                        <Button Click="OnExportQuicklinks" Content="Export" />
+                        <Button Click="OnImportQuicklinks" Content="Import" />
                     </StackPanel>
                 </StackPanel>
 
@@ -187,7 +247,9 @@
                 <StackPanel x:Name="NotesPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Notes" />
                     <ToggleSwitch x:Name="NotesSwitch" OffContent="" OnContent="" Header="Enable Notes" Toggled="OnFeatureToggled" />
+                    <TextBlock Opacity="0.7" Text="Notes stay off until you enable them." />
                     <Button Click="OnOpenNotes" Content="Open notes" HorizontalAlignment="Left" />
+                    <Button Click="OnRevealNotes" Content="Reveal notes folder" HorizontalAlignment="Left" />
                 </StackPanel>
 
                 <StackPanel x:Name="SnippetsPane" Spacing="12" Visibility="Collapsed">
@@ -196,7 +258,8 @@
                     <ListView x:Name="SnippetsList" Height="160" SelectionChanged="OnSnippetSelected" />
                     <TextBox x:Name="SnippetNameBox" PlaceholderText="Name" />
                     <TextBox x:Name="SnippetKeywordBox" PlaceholderText="Keyword" />
-                    <TextBox x:Name="SnippetTextBox" AcceptsReturn="True" Height="100" TextWrapping="Wrap" PlaceholderText="Template" />
+                    <TextBox x:Name="SnippetTextBox" AcceptsReturn="True" Height="100" TextWrapping="Wrap" PlaceholderText="Template. Markdown files with frontmatter also load from the snippets folder." />
+                    <TextBlock x:Name="SnippetConflictText" TextWrapping="Wrap" Opacity="0.7" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnSaveSnippet" Content="Save" />
                         <Button Click="OnRemoveSnippet" Content="Delete" />
@@ -206,6 +269,7 @@
                 <StackPanel x:Name="NavigationPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Navigation" />
                     <ToggleSwitch x:Name="NavSwitch" OffContent="" OnContent="" Header="Enable navigation" Toggled="OnFeatureToggled" />
+                    <TextBox x:Name="NavExcludedBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="Excluded process names, one per line" LostFocus="OnNavigationExcludedChanged" />
                 </StackPanel>
 
                 <StackPanel x:Name="WindowManagementPane" Spacing="12" Visibility="Collapsed">
@@ -227,7 +291,7 @@
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="Layouts" />
                     <ListView x:Name="LayoutsList" Height="140" SelectionChanged="OnLayoutSelected" />
                     <TextBox x:Name="LayoutNameBox" PlaceholderText="Name" />
-                    <TextBox x:Name="LayoutSlotsBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="process  x  y  width  height" />
+                    <TextBox x:Name="LayoutSlotsBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="process  x  y  width  height  [path]" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnCaptureLayout" Content="Capture" />
                         <Button Click="OnSaveLayoutEdit" Content="Save" />
@@ -239,6 +303,14 @@
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Clipboard" />
                     <ToggleSwitch x:Name="ClipboardSwitch" OffContent="" OnContent="" Header="Enable Clipboard History" Toggled="OnFeatureToggled" />
                     <TextBlock x:Name="ClipboardFilterHint" Opacity="0.7" />
+                    <ToggleSwitch x:Name="ClipboardOcrSwitch" OffContent="" OnContent="" Header="OCR images (opt-in)" Toggled="OnClipboardPolicyChanged" />
+                    <ToggleSwitch x:Name="ClipboardKeepOpenSwitch" OffContent="" OnContent="" Header="Keep palette open after paste" Toggled="OnClipboardPolicyChanged" />
+                    <ComboBox x:Name="ClipboardActionBox" Width="220" HorizontalAlignment="Left" SelectionChanged="OnClipboardActionChanged">
+                        <ComboBoxItem Content="Paste by default" Tag="paste" />
+                        <ComboBoxItem Content="Copy by default" Tag="copy" />
+                    </ComboBox>
+                    <NumberBox x:Name="ClipboardRetentionBox" Header="Retention days (0 keeps forever)" Maximum="3650" Minimum="0" SpinButtonPlacementMode="Inline" ValueChanged="OnClipboardRetentionChanged" />
+                    <TextBox x:Name="ClipboardIgnoredBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="Ignored app names, one per line" LostFocus="OnClipboardPolicyChanged" />
                 </StackPanel>
 
                 <StackPanel x:Name="EmojiPane" Spacing="12" Visibility="Collapsed">
@@ -251,6 +323,14 @@
                         <TextBlock Text="Columns" VerticalAlignment="Center" />
                         <Slider x:Name="EmojiColumnsSlider" Grid.Column="1" Width="160" Maximum="10" Minimum="6" StepFrequency="1" ValueChanged="OnEmojiColumnsChanged" />
                     </Grid>
+                    <ComboBox x:Name="EmojiSkinBox" Width="220" HorizontalAlignment="Left" Header="Skin tone" SelectionChanged="OnEmojiSkinChanged">
+                        <ComboBoxItem Content="Default" Tag="0" />
+                        <ComboBoxItem Content="Light" Tag="1" />
+                        <ComboBoxItem Content="Medium-light" Tag="2" />
+                        <ComboBoxItem Content="Medium" Tag="3" />
+                        <ComboBoxItem Content="Medium-dark" Tag="4" />
+                        <ComboBoxItem Content="Dark" Tag="5" />
+                    </ComboBox>
                 </StackPanel>
 
                 <StackPanel x:Name="CalendarPane" Spacing="12" Visibility="Collapsed">
@@ -258,6 +338,7 @@
                     <ToggleSwitch x:Name="CalendarSwitch" OffContent="" OnContent="" Header="Enable Calendar" Toggled="OnFeatureToggled" />
                     <ToggleSwitch x:Name="AutoJoinSwitch" OffContent="" OnContent="" Header="Auto-join meetings" Toggled="OnFeatureToggled" />
                     <ToggleSwitch x:Name="CameraSwitch" OffContent="" OnContent="" Header="Camera preview" Toggled="OnFeatureToggled" />
+                    <TextBox x:Name="CalendarExcludedBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="Excluded calendar IDs, one per line" LostFocus="OnCalendarExcludedChanged" />
                 </StackPanel>
 
                 <StackPanel x:Name="ExtensionsPane" Spacing="12" Visibility="Collapsed">
@@ -268,6 +349,12 @@
 
                 <StackPanel x:Name="BackupPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Backup" />
+                    <CheckBox x:Name="BackupSettingsCheck" Content="Settings and shortcuts" IsChecked="True" />
+                    <CheckBox x:Name="BackupSnippetsCheck" Content="Snippets" IsChecked="True" />
+                    <CheckBox x:Name="BackupNotesCheck" Content="Notes" IsChecked="True" />
+                    <CheckBox x:Name="BackupLearningCheck" Content="Launcher learning" IsChecked="True" />
+                    <CheckBox x:Name="BackupClipboardCheck" Content="Clipboard history" IsChecked="True" />
+                    <TextBlock x:Name="BackupStatus" TextWrapping="Wrap" Opacity="0.7" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnExportBackup" Content="Export .tinycast" />
                         <Button Click="OnImportBackup" Content="Import" />
@@ -276,8 +363,8 @@
 
                 <StackPanel x:Name="AboutPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="About" />
-                    <TextBlock x:Name="AboutIdentity" />
-                    <TextBlock x:Name="AboutMcp" TextWrapping="Wrap" />
+                    <TextBlock x:Name="AboutIdentity" FontSize="16" />
+                    <TextBlock x:Name="AboutMcp" Visibility="Collapsed" TextWrapping="Wrap" />
                     <TextBlock x:Name="AboutUpdateStatus" TextWrapping="Wrap" Opacity="0.7" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="UpdatesButton" Click="OnUpdatesButton" Content="Check for updates" />

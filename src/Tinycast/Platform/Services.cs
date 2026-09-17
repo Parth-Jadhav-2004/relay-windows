@@ -5,6 +5,7 @@ using Tinycast.Features.Calculator;
 using Tinycast.Features.Clipboard;
 using Tinycast.Features.SystemActions;
 using Tinycast.Features.WindowManagement;
+using Tinycast.Palette;
 using Tinycast.Platform;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics.Imaging;
@@ -36,6 +37,13 @@ public sealed class ClipboardManager
 
     public void IgnoreNext() => _ignoreNext = true;
 
+    void Prune()
+    {
+        var cutoff = ClipboardPolicy.RetentionCutoff(_core.Settings.ClipboardRetentionDays, DateTime.UtcNow);
+        if (cutoff is { } when)
+            _core.ClipboardStore.PruneUnpinnedOlderThan(when);
+    }
+
     public void Capture() => _ = CaptureAsync();
 
     async Task CaptureAsync()
@@ -57,6 +65,9 @@ public sealed class ClipboardManager
                 return;
 
             var source = Paster.ForegroundProcessPath(IntPtr.Zero);
+            if (ClipboardPolicy.IsIgnored(source, _core.Settings.ClipboardIgnoredApps))
+                return;
+
             var hasFiles = content.Contains(StandardDataFormats.StorageItems);
             var hasBitmap = content.Contains(StandardDataFormats.Bitmap);
             var hasText = content.Contains(StandardDataFormats.Text);
@@ -81,6 +92,7 @@ public sealed class ClipboardManager
             {
                 foreach (var path in durableFiles)
                     _core.ClipboardStore.Insert(ClipboardKind.File, path, filePath: path, sourceId: source);
+                Prune();
                 _core.ClipboardCoordinator.HistoryChanged();
                 return;
             }
@@ -92,7 +104,9 @@ public sealed class ClipboardManager
                 if (path is not null)
                 {
                     var item = _core.ClipboardStore.Insert(ClipboardKind.Image, "", path, sourceId: source);
-                    _ = RecognizeAsync(item.Id, path);
+                    if (_core.Settings.ClipboardOcrEnabled)
+                        _ = RecognizeAsync(item.Id, path);
+                    Prune();
                     _core.ClipboardCoordinator.HistoryChanged();
                 }
 
@@ -107,6 +121,7 @@ public sealed class ClipboardManager
                 _core.ClipboardStore.Insert(ClipboardKind.Text, text, sourceId: source);
                 if (_core.Settings.QuickActionsEnabled)
                     _core.RememberSelection(text);
+                Prune();
                 _core.ClipboardCoordinator.HistoryChanged();
             }
         }
@@ -229,11 +244,6 @@ internal static class SystemActionRunner
             case "toggle-mute": NativeMethods.SendVk(NativeMethods.VkVolumeMute); core.ShowMessage("Mute"); break;
             case "volume-up": NativeMethods.SendVk(NativeMethods.VkVolumeUp); core.ShowMessage("Volume up"); break;
             case "volume-down": NativeMethods.SendVk(NativeMethods.VkVolumeDown); core.ShowMessage("Volume down"); break;
-            case "volume-0": SendVolumeKeys(0); core.ShowMessage("Volume 0%"); break;
-            case "volume-25": SendVolumeKeys(4); core.ShowMessage("Volume 25%"); break;
-            case "volume-50": SendVolumeKeys(8); core.ShowMessage("Volume 50%"); break;
-            case "volume-75": SendVolumeKeys(12); core.ShowMessage("Volume 75%"); break;
-            case "volume-100": SendVolumeKeys(16); core.ShowMessage("Volume 100%"); break;
             case "show-desktop":
                 NativeMethods.keybd_event((byte)NativeMethods.VkLwin, 0, 0, UIntPtr.Zero);
                 NativeMethods.keybd_event((byte)NativeMethods.VkD, 0, 0, UIntPtr.Zero);
@@ -260,10 +270,37 @@ internal static class SystemActionRunner
                 NativeMethods.keybd_event((byte)0x41, 0, NativeMethods.KeyeventfKeyUp, UIntPtr.Zero);
                 NativeMethods.keybd_event((byte)NativeMethods.VkLwin, 0, NativeMethods.KeyeventfKeyUp, UIntPtr.Zero);
                 break;
-            case "toggle-bluetooth": ProcessLauncher.OpenUri("ms-settings:bluetooth"); break;
-            case "set-volume":
-                core.ShowMessage("Use volume 0–100 commands, or the HUD keys.", DialogTone.Neutral);
+            case "toggle-bluetooth":
+                _ = ToggleBluetoothAsync(core);
                 break;
+            case "set-volume":
+                core.PaletteCoordinator.ShowPalette(PaletteMode.Volume);
+                break;
+            case "volume-0": SendVolumeKeys(VolumeSteps.UpsFromPercent(0)); core.ShowMessage("Volume 0%"); break;
+            case "volume-25": SendVolumeKeys(VolumeSteps.UpsFromPercent(25)); core.ShowMessage("Volume 25%"); break;
+            case "volume-50": SendVolumeKeys(VolumeSteps.UpsFromPercent(50)); core.ShowMessage("Volume 50%"); break;
+            case "volume-75": SendVolumeKeys(VolumeSteps.UpsFromPercent(75)); core.ShowMessage("Volume 75%"); break;
+            case "volume-100": SendVolumeKeys(VolumeSteps.UpsFromPercent(100)); core.ShowMessage("Volume 100%"); break;
+        }
+    }
+
+    public static void RunVolume(int percent, AppCore core)
+    {
+        SendVolumeKeys(VolumeSteps.UpsFromPercent(percent));
+        core.ShowMessage("Volume " + VolumeSteps.Clamp(percent) + "%");
+    }
+
+    static async Task ToggleBluetoothAsync(AppCore core)
+    {
+        try
+        {
+            core.ShowMessage(await RadioToggle.ToggleBluetoothAsync());
+        }
+        catch (Exception ex)
+        {
+            Log.Write("bluetooth: " + ex.Message);
+            ProcessLauncher.OpenUri("ms-settings:bluetooth");
+            core.ShowMessage("Opened Bluetooth settings");
         }
     }
 

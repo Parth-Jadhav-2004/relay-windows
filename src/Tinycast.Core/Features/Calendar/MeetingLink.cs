@@ -138,7 +138,7 @@ public sealed record MeetingLink(MeetingProvider Provider, Uri Url, string? Acco
     }
 }
 
-public sealed record MeetingEvent(string Id, string Title, DateTime Start, DateTime End, MeetingLink? Link, bool IsAllDay);
+public sealed record MeetingEvent(string Id, string Title, DateTime Start, DateTime End, MeetingLink? Link, bool IsAllDay, string? CalendarId = null);
 
 public static class MeetingAutoJoin
 {

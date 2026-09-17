@@ -31,6 +31,20 @@ public static class SettingsSnapshot
         [AppSettingsKey.WindowGap] = settings.WindowGap.ToString(CultureInfo.InvariantCulture),
         [AppSettingsKey.WindowCycle] = settings.WindowCycle,
         [AppSettingsKey.EmojiColumns] = settings.EmojiColumns.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.ClipboardOcrEnabled] = Flag(settings.ClipboardOcrEnabled),
+        [AppSettingsKey.ClipboardRetentionDays] = settings.ClipboardRetentionDays.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.ClipboardKeepOpen] = Flag(settings.ClipboardKeepOpen),
+        [AppSettingsKey.ClipboardDefaultAction] = settings.ClipboardDefaultAction,
+        [AppSettingsKey.ClipboardIgnoredApps] = string.Join("\n", settings.ClipboardIgnoredApps),
+        [AppSettingsKey.EmojiSkinTone] = settings.EmojiSkinTone.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.CompactPalette] = Flag(settings.CompactPalette),
+        [AppSettingsKey.PaletteRememberPosition] = Flag(settings.PaletteRememberPosition),
+        [AppSettingsKey.PalettePopToRootSeconds] = settings.PalettePopToRootSeconds.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.PaletteEscapeClearsQuery] = Flag(settings.PaletteEscapeClearsQuery),
+        [AppSettingsKey.CalendarExcludedIds] = string.Join("\n", settings.CalendarExcludedIds),
+        [AppSettingsKey.NavigationExcludedApps] = string.Join("\n", settings.NavigationExcludedApps),
+        [AppSettingsKey.PaletteLeft] = settings.PaletteLeft.ToString(CultureInfo.InvariantCulture),
+        [AppSettingsKey.PaletteTop] = settings.PaletteTop.ToString(CultureInfo.InvariantCulture),
     };
 
     public static void ApplyMirrored(AppSettings settings, IReadOnlyDictionary<string, string> data)
@@ -93,6 +107,53 @@ public static class SettingsSnapshot
                 case AppSettingsKey.EmojiColumns:
                     if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cols))
                         settings.EmojiColumns = Math.Clamp(cols, 6, 10);
+                    break;
+                case AppSettingsKey.ClipboardOcrEnabled:
+                    settings.ClipboardOcrEnabled = IsTrue(value);
+                    break;
+                case AppSettingsKey.ClipboardRetentionDays:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days))
+                        settings.ClipboardRetentionDays = Math.Clamp(days, 0, 3650);
+                    break;
+                case AppSettingsKey.ClipboardKeepOpen:
+                    settings.ClipboardKeepOpen = IsTrue(value);
+                    break;
+                case AppSettingsKey.ClipboardDefaultAction:
+                    settings.ClipboardDefaultAction = value;
+                    break;
+                case AppSettingsKey.ClipboardIgnoredApps:
+                    settings.ClipboardIgnoredApps = Lines(value);
+                    break;
+                case AppSettingsKey.EmojiSkinTone:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tone))
+                        settings.EmojiSkinTone = Math.Clamp(tone, 0, 5);
+                    break;
+                case AppSettingsKey.CompactPalette:
+                    settings.CompactPalette = IsTrue(value);
+                    break;
+                case AppSettingsKey.PaletteRememberPosition:
+                    settings.PaletteRememberPosition = IsTrue(value);
+                    break;
+                case AppSettingsKey.PalettePopToRootSeconds:
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pop))
+                        settings.PalettePopToRootSeconds = Math.Clamp(pop, 0, 120);
+                    break;
+                case AppSettingsKey.PaletteEscapeClearsQuery:
+                    settings.PaletteEscapeClearsQuery = IsTrue(value);
+                    break;
+                case AppSettingsKey.CalendarExcludedIds:
+                    settings.CalendarExcludedIds = Lines(value);
+                    break;
+                case AppSettingsKey.NavigationExcludedApps:
+                    settings.NavigationExcludedApps = Lines(value);
+                    break;
+                case AppSettingsKey.PaletteLeft:
+                    if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var left))
+                        settings.PaletteLeft = left;
+                    break;
+                case AppSettingsKey.PaletteTop:
+                    if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var top))
+                        settings.PaletteTop = top;
                     break;
             }
         }

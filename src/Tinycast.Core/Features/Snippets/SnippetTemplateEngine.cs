@@ -112,7 +112,7 @@ public static class SnippetTemplateEngine
         }
 
         if (lower is "clipboard" or "clipboard:0")
-            return context.Clipboard;
+            return ApplyModifier(context.Clipboard, token);
         if (lower.StartsWith("clipboard:", StringComparison.Ordinal))
         {
             if (int.TryParse(lower["clipboard:".Length..], out var index) && index >= 0 && index < context.ClipboardHistory.Count)
@@ -120,12 +120,22 @@ public static class SnippetTemplateEngine
             return "";
         }
 
-        if (lower is "selection")
-            return context.Selection;
+        if (lower is "selection" || lower.StartsWith("selection ", StringComparison.Ordinal))
+            return ApplyModifier(context.Selection, token);
         if (lower is "uuid")
             return context.MakeUuid();
         if (lower is "date")
             return context.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        if (lower.StartsWith("date format=", StringComparison.Ordinal)
+            || lower.StartsWith("date:", StringComparison.Ordinal))
+        {
+            var format = lower.StartsWith("date format=", StringComparison.Ordinal)
+                ? token[12..].Trim().Trim('"')
+                : token[5..].Trim().Trim('"');
+            try { return context.Now.ToString(format, CultureInfo.InvariantCulture); }
+            catch (Exception) { return context.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+        }
+
         if (lower is "time")
             return context.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
         if (lower is "datetime")
@@ -166,5 +176,17 @@ public static class SnippetTemplateEngine
         }
 
         return "{" + token + "}";
+    }
+
+    static string ApplyModifier(string value, string token)
+    {
+        var lower = token.ToLowerInvariant();
+        if (lower.Contains("uppercase", StringComparison.Ordinal))
+            return value.ToUpperInvariant();
+        if (lower.Contains("lowercase", StringComparison.Ordinal))
+            return value.ToLowerInvariant();
+        if (lower.Contains("trim", StringComparison.Ordinal))
+            return value.Trim();
+        return value;
     }
 }

@@ -26,6 +26,12 @@ public static class BuiltinCommands
     public const string Schedule = "command:schedule";
     public const string TogglePalette = "command:toggle-palette";
     public const string SaveLayout = "command:save-layout";
+    public const string SearchNotes = "command:search-notes";
+    public const string RevealNotes = "command:reveal-notes";
+    public const string JoinNext = "command:join-next";
+    public const string CreateEvent = "command:create-event";
+    public const string CopyMeetingLink = "command:copy-meeting-link";
+    public const string OpenCalendar = "command:open-calendar";
 }
 
 public sealed record SupportReminderSchedule(DateTime InstalledAt, DateTime? LastShown)

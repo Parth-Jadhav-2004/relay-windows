@@ -14,4 +14,6 @@ public enum PaletteMode
     SwitchWindows,
     MenuSearch,
     AiChat,
+    Volume,
+    CommandOutput,
 }

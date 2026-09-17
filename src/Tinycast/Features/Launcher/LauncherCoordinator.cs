@@ -37,6 +37,8 @@ public sealed class LauncherCoordinator
             PaletteMode.Uninstall => UninstallRows(query),
             PaletteMode.Schedule => ScheduleRows(query),
             PaletteMode.AiChat => AiRows(query),
+            PaletteMode.Volume => VolumeRows(query),
+            PaletteMode.CommandOutput => OutputRows(query),
             _ => LauncherRows(query),
         };
     }
@@ -89,6 +91,11 @@ public sealed class LauncherCoordinator
             entries.Add(new AppEntry(snippet.Id, snippet.Name, AppEntryKind.Snippet, snippet.Keyword, null, "\uE8A5", new SearchFields(SearchAlias.Name(snippet.Name), SearchAlias.Name(snippet.Keyword))));
         foreach (var custom in _core.CustomCommands)
             entries.Add(new AppEntry(custom.Id, custom.Name, AppEntryKind.CustomCommand, custom.FileName, custom.FileName, "\uE756", new SearchFields(SearchAlias.Name(custom.Name))));
+        if (_core.Settings.NotesEnabled)
+        {
+            foreach (var note in _core.Notes)
+                entries.Add(new AppEntry("note:" + note.Id, note.Title, AppEntryKind.Command, "Note", note.Path, "\uE70B", new SearchFields(SearchAlias.Name(note.Title))));
+        }
 
         var ranked = LauncherOrder.Rank(
             entries,
@@ -115,7 +122,7 @@ public sealed class LauncherCoordinator
 
             if (_core.Settings.CalendarEnabled)
             {
-                var join = MeetingJoinCard.NextJoinable(_core.Meetings, DateTime.Now);
+                var join = MeetingJoinCard.NextJoinable(_core.Meetings, DateTime.Now, _core.Settings.CalendarExcludedIds);
                 if (join?.Link is not null)
                 {
                     rows.Insert(0, new PaletteRow(
@@ -211,6 +218,12 @@ public sealed class LauncherCoordinator
         yield return Cmd(BuiltinCommands.AiChat, "AI Chat", "Ask a model", "\uE99A");
         yield return Cmd(BuiltinCommands.Schedule, "Schedule", "Upcoming calendar events", "\uE787");
         yield return Cmd(BuiltinCommands.SaveLayout, "Save Window Layout", "Remember open window frames", "\uE8A9");
+        yield return Cmd(BuiltinCommands.SearchNotes, "Search Notes", "Find a note by title", "\uE721");
+        yield return Cmd(BuiltinCommands.RevealNotes, "Reveal Notes Folder", "Open the notes folder", "\uE8B7");
+        yield return Cmd(BuiltinCommands.JoinNext, "Join Next Meeting", "Open the next joinable meeting", "\uE716");
+        yield return Cmd(BuiltinCommands.CreateEvent, "Create Event", "Compose a calendar event", "\uE787");
+        yield return Cmd(BuiltinCommands.CopyMeetingLink, "Copy Meeting Link", "Copy the next meeting URL", "\uE71B");
+        yield return Cmd(BuiltinCommands.OpenCalendar, "Open Calendar", "Open the Windows Calendar app", "\uE787");
         yield return Cmd(BuiltinCommands.Quit, "Quit Tinycast", "Leave the tray and hotkey", "\uE711");
     }
 
@@ -242,9 +255,22 @@ public sealed class LauncherCoordinator
 
     IReadOnlyList<PaletteRow> ClipboardRows(string query) => _core.ClipboardCoordinator.Rows(query);
 
-    IReadOnlyList<PaletteRow> EmojiRows(string query) =>
-        EmojiCatalog.Search(query).Select(e =>
-            new PaletteRow("emoji:" + e.Glyph, e.Glyph + "  " + e.Name, e.Group, e.Glyph, e.Group, AppEntryKind.Command, e.Glyph, false, e.Glyph)).ToList();
+    IReadOnlyList<PaletteRow> EmojiRows(string query)
+    {
+        var skin = _core.Settings.EmojiSkinTone;
+        var hits = EmojiCatalog.Search(query, skin).ToList();
+        var pinned = _core.Favorites.OrderedIds()
+            .Where(id => id.StartsWith("emoji:", StringComparison.Ordinal))
+            .Select(id => hits.FirstOrDefault(e => ("emoji:" + e.Glyph) == id))
+            .Where(e => e is not null)
+            .Select(e => e!)
+            .ToList();
+        var rest = hits.Where(e => pinned.All(p => p.Glyph != e.Glyph)).ToList();
+        var rows = new List<PaletteRow>();
+        foreach (var e in pinned.Concat(rest))
+            rows.Add(new PaletteRow("emoji:" + e.Glyph, e.Glyph + "  " + e.Name, e.Group, e.Glyph, e.Group, AppEntryKind.Command, e.Glyph, false, e.Glyph));
+        return rows;
+    }
 
     IReadOnlyList<PaletteRow> FileRows(string query) => _core.FileSearchCoordinator.Rows(query);
 
@@ -258,7 +284,26 @@ public sealed class LauncherCoordinator
     {
         if (!_core.Settings.SnippetsEnabled)
             return [new PaletteRow("snip-off", "Snippets are off", "Enable them in Settings → Snippets", "\uE8A5")];
-        return _core.Snippets.Where(s => query.Length == 0 || s.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+        if (_core.PendingSnippet is { } pending)
+        {
+            var declared = SnippetTemplateEngine.DeclaredArguments(pending.Text);
+            var name = declared.Count > 0 ? declared[0].Name : "argument";
+            return
+            [
+                new PaletteRow(
+                    pending.Id,
+                    "Use “" + (query.Length == 0 ? "…" : query) + "” for " + name,
+                    pending.Name,
+                    "\uE8A5",
+                    "Argument",
+                    AppEntryKind.Snippet,
+                    query,
+                    false,
+                    query),
+            ];
+        }
+
+        return _core.Snippets.Where(s => query.Length == 0 || s.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || s.Keyword.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(s => new PaletteRow(s.Id, s.Name, s.Keyword, "\uE8A5", "Snippets", AppEntryKind.Snippet, s.Text, false, s.Text))
             .ToList();
     }
@@ -276,20 +321,34 @@ public sealed class LauncherCoordinator
     {
         if (!_core.Settings.NavigationEnabled)
             return [new PaletteRow("nav-off", "Navigation is off", "Enable it in Settings → Navigation", "\uE8A7")];
-        return WindowSwitchQuery.Filter(WindowInventory.Enumerate(), query)
-            .Select(w => new PaletteRow("switch:" + w.Hwnd.ToInt64(), w.Title, w.ProcessName, "\uE8A7", "Windows"))
-            .ToList();
+        var excluded = _core.Settings.NavigationExcludedApps;
+        var rows = new List<PaletteRow>
+        {
+            new("desk:next", "Next virtual desktop", "Win+Ctrl+Right", "\uE149", "Desktops"),
+            new("desk:prev", "Previous virtual desktop", "Win+Ctrl+Left", "\uE148", "Desktops"),
+        };
+        rows.AddRange(WindowSwitchQuery.Filter(WindowInventory.Enumerate(), query)
+            .Where(w => !excluded.Any(ex => w.ProcessName.Equals(ex.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Select(w => new PaletteRow("switch:" + w.Hwnd.ToInt64(), w.Title, w.ProcessName, "\uE8A7", "Windows")));
+        return rows;
     }
 
     IReadOnlyList<PaletteRow> MenuRows(string query)
     {
+        if (!_core.Settings.NavigationEnabled)
+            return [new PaletteRow("nav-off", "Navigation is off", "Enable it in Settings → Navigation", "\uE700")];
         var hwnd = _core.PaletteWindow?.PreviousHwnd ?? IntPtr.Zero;
+        var process = Paster.ForegroundProcessPath(hwnd);
+        if (ClipboardPolicy.IsIgnored(process, _core.Settings.NavigationExcludedApps))
+            return [new PaletteRow("menu-skip", "This app is excluded", "Remove it from Settings → Navigation", "\uE700")];
         var items = MenuProbe.Items(hwnd);
+        if (items.Count == 0)
+            items = AccessibleMenu.Items(hwnd);
         var rows = MenuSearchQuery.Filter(items, query)
             .Select(i => new PaletteRow("menu:" + i.Hwnd.ToInt64() + ":" + i.CommandId, i.Path, i.Shortcut, "\uE700", "Menu"))
             .ToList();
         if (rows.Count == 0)
-            rows.Add(new PaletteRow("menu-empty", "No classic menu bar", "Win32 menus only — many WinUI apps expose none", "\uE700"));
+            rows.Add(new PaletteRow("menu-empty", "No menu items", "Classic menus and accessibility trees are searched", "\uE700"));
         return rows;
     }
 
@@ -298,29 +357,15 @@ public sealed class LauncherCoordinator
         var name = query.Trim();
         if (name.Length < 3)
             return [new PaletteRow("uninstall-hint", "Type an app name", "At least three letters. Tinycast’s own data stays protected.", "\uE74D")];
-        var identity = new UninstallIdentity(name, AppPaths.ChannelId, []);
-        var roots = new[]
-        {
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        };
-        var hits = new List<PaletteRow>();
-        foreach (var root in roots)
-        {
-            if (!Directory.Exists(root))
-                continue;
-            try
-            {
-                foreach (var dir in Directory.EnumerateDirectories(root).Take(80))
-                {
-                    var folderName = Path.GetFileName(dir);
-                    if (UninstallRules.MatchesName(folderName, identity) && !UninstallRules.IsProtected(dir))
-                        hits.Add(new PaletteRow("uninstall:" + dir, folderName, dir, "\uE74D", "Leftovers"));
-                }
-            }
-            catch (Exception) { }
-        }
-
+        var hits = UninstallScanner.Find(name)
+            .Select(h => new PaletteRow(
+                "uninstall:" + h.Path,
+                h.Title,
+                h.Kind + " · " + UninstallLeftoverLogic.SizeLabel(h.Bytes),
+                "\uE74D",
+                "Leftovers",
+                Preview: h.Path))
+            .ToList();
         if (hits.Count == 0)
             hits.Add(new PaletteRow("uninstall-empty", "No leftovers for that name", "Type the app name. System folders stay protected.", "\uE74D"));
         return hits;
@@ -358,6 +403,26 @@ public sealed class LauncherCoordinator
         else
             rows.Insert(0, new PaletteRow("ai-model", _core.AiCoordinator.SelectedModel, subtitle, "\uE99A", "Model"));
         return rows;
+    }
+
+    IReadOnlyList<PaletteRow> VolumeRows(string query)
+    {
+        return VolumeSteps.Percents
+            .Where(p => query.Length == 0 || p.ToString().Contains(query, StringComparison.OrdinalIgnoreCase) || query.Contains(p.ToString(), StringComparison.OrdinalIgnoreCase))
+            .Select(p => new PaletteRow("volume:" + p, p + "%", "Set output volume", "\uE767", "Volume"))
+            .ToList();
+    }
+
+    IReadOnlyList<PaletteRow> OutputRows(string query)
+    {
+        var text = _core.LastCommandOutput;
+        if (string.IsNullOrWhiteSpace(text))
+            return [new PaletteRow("out-empty", "No command output", "Run a custom command to capture stdout", "\uE756")];
+        return text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => query.Length == 0 || line.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Take(80)
+            .Select((line, i) => new PaletteRow("out:" + i, line, null, "\uE8A5", "Output", CopyText: line))
+            .ToList();
     }
 
     public async void Activate(string id, bool reveal = false)
@@ -449,7 +514,7 @@ public sealed class LauncherCoordinator
             if (link is not null)
             {
                 _core.PaletteCoordinator.HidePalette(restoreFocus: false);
-                ProcessLauncher.Open(QuicklinkDestination.Expand(link.Destination, _core.Palette.Query));
+                ProcessLauncher.Open(ExpandLink(link));
             }
 
             return;
@@ -520,7 +585,44 @@ public sealed class LauncherCoordinator
             if (link is not null)
             {
                 _core.PaletteCoordinator.HidePalette(restoreFocus: false);
-                ProcessLauncher.Open(QuicklinkDestination.Expand(link.Destination, _core.Palette.Query));
+                ProcessLauncher.Open(ExpandLink(link));
+            }
+
+            return;
+        }
+
+        if (id.StartsWith("note:", StringComparison.Ordinal))
+        {
+            _core.PaletteCoordinator.HidePalette();
+            _core.ShowNotes(id["note:".Length..]);
+            return;
+        }
+
+        if (id.StartsWith("volume:", StringComparison.Ordinal) && int.TryParse(id["volume:".Length..], out var percent))
+        {
+            _core.PaletteCoordinator.HidePalette();
+            SystemActionRunner.RunVolume(percent, _core);
+            return;
+        }
+
+        if (id is "desk:next" or "desk:prev")
+        {
+            _core.PaletteCoordinator.HidePalette();
+            if (id == "desk:next")
+                VirtualDesktop.Next();
+            else
+                VirtualDesktop.Previous();
+            return;
+        }
+
+        if (id.StartsWith("out:", StringComparison.Ordinal))
+        {
+            var row = OutputRows("").FirstOrDefault(r => r.Id == id);
+            if (row?.CopyText is { } copy)
+            {
+                _core.Clipboard.CopyText(copy);
+                _core.ShowMessage("Copied");
+                _core.PaletteCoordinator.HidePalette();
             }
 
             return;
@@ -531,7 +633,7 @@ public sealed class LauncherCoordinator
             var snippet = _core.Snippets.First(s => s.Id == id);
             var previous = TargetHwnd();
             if (!_core.TryPasteSnippet(snippet, previous))
-                _core.PaletteCoordinator.ShowPalette(PaletteMode.Snippets, seeding: snippet.Name);
+                _core.PaletteCoordinator.ShowPalette(PaletteMode.Snippets);
             return;
         }
 
@@ -552,10 +654,15 @@ public sealed class LauncherCoordinator
             _core.PaletteCoordinator.HidePalette();
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(command.FileName, string.Join(" ", command.Arguments.Select(a => "\"" + a.Replace("\"", "\\\"") + "\"")))
+                var extra = _core.Palette.Query.Trim();
+                if (extra.Equals(command.Name, StringComparison.OrdinalIgnoreCase))
+                    extra = "";
+                var output = CommandProcess.Run(command.FileName, command.Arguments, extra);
+                if (!string.IsNullOrWhiteSpace(output))
                 {
-                    UseShellExecute = false,
-                });
+                    _core.LastCommandOutput = output;
+                    _core.PaletteCoordinator.ShowPalette(PaletteMode.CommandOutput);
+                }
             }
             catch (Exception ex) { _core.ShowMessage(ex.Message, DialogTone.Danger); }
             return;
@@ -564,8 +671,15 @@ public sealed class LauncherCoordinator
         if (id.StartsWith("uninstall:", StringComparison.Ordinal))
         {
             var path = id["uninstall:".Length..];
-            if (UninstallRules.IsProtected(path))
+            if (UninstallRules.IsProtected(path) || path.StartsWith("reg:", StringComparison.OrdinalIgnoreCase))
             {
+                if (path.StartsWith("reg:", StringComparison.OrdinalIgnoreCase))
+                {
+                    _core.ShowMessage("Uninstall this app from Settings → Apps.", DialogTone.Neutral);
+                    ProcessLauncher.OpenUri("ms-settings:appsfeatures");
+                    return;
+                }
+
                 _core.ShowMessage("Protected path", DialogTone.Danger);
                 return;
             }
@@ -577,7 +691,13 @@ public sealed class LauncherCoordinator
                 0, 0, path, DialogTone.Danger));
             if (choice == 1)
             {
-                try { Recycle.Send(path); }
+                try
+                {
+                    if (File.Exists(path) || Directory.Exists(path))
+                        Recycle.Send(path);
+                    else
+                        ProcessLauncher.Open(path);
+                }
                 catch (Exception ex) { _core.ShowMessage(ex.Message, DialogTone.Danger); }
             }
 
@@ -701,7 +821,35 @@ public sealed class LauncherCoordinator
                 _core.PaletteCoordinator.HidePalette();
                 _core.SaveCurrentLayout();
                 break;
+            case BuiltinCommands.SearchNotes:
+                _core.PaletteCoordinator.HidePalette();
+                _core.ShowNotes();
+                break;
+            case BuiltinCommands.RevealNotes:
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                ProcessLauncher.Open(AppPaths.NotesDir);
+                break;
+            case BuiltinCommands.JoinNext:
+                _core.JoinNextMeeting();
+                break;
+            case BuiltinCommands.CreateEvent:
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                _ = _core.CreateCalendarEventAsync();
+                break;
+            case BuiltinCommands.CopyMeetingLink:
+                _core.CopyNextMeetingLink();
+                break;
+            case BuiltinCommands.OpenCalendar:
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                ProcessLauncher.OpenUri("ms-calendar:");
+                break;
         }
+    }
+
+    string ExpandLink(Quicklink link)
+    {
+        var clip = _core.ClipboardStore.Search("").FirstOrDefault()?.Text ?? "";
+        return QuicklinkDestination.Expand(link.Destination, _core.Palette.Query, _core.LastSelection, clip);
     }
 
     public void CopyCalculator(string id, bool withExpression)

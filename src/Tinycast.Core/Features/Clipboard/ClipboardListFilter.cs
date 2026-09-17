@@ -7,6 +7,7 @@ public enum ClipboardListFilter
     Image,
     File,
     Link,
+    Color,
 }
 
 public static class ClipboardListFilterLogic
@@ -18,6 +19,7 @@ public static class ClipboardListFilterLogic
         ClipboardListFilter.Image,
         ClipboardListFilter.File,
         ClipboardListFilter.Link,
+        ClipboardListFilter.Color,
     ];
 
     public static ClipboardListFilter Next(ClipboardListFilter current)
@@ -32,6 +34,7 @@ public static class ClipboardListFilterLogic
         ClipboardListFilter.Image => "Images",
         ClipboardListFilter.File => "Files",
         ClipboardListFilter.Link => "Links",
+        ClipboardListFilter.Color => "Colors",
         _ => "All",
     };
 
@@ -42,6 +45,7 @@ public static class ClipboardListFilterLogic
         ClipboardListFilter.Image => item.Kind == ClipboardKind.Image,
         ClipboardListFilter.File => item.Kind == ClipboardKind.File,
         ClipboardListFilter.Link => item.Kind == ClipboardKind.Text && IsLink(item.Text),
+        ClipboardListFilter.Color => item.Kind == ClipboardKind.Text && ClipboardColor.IsColor(item.Text),
         _ => true,
     };
 

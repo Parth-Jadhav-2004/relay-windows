@@ -252,6 +252,28 @@ public sealed class FileSearchCoordinator
         _core.ShowMessage("Copied name");
     }
 
+    public void PasteIntoApp(string id)
+    {
+        var path = PathOf(id);
+        if (path is null)
+            return;
+        var previous = _core.PaletteWindow?.PreviousHwnd ?? IntPtr.Zero;
+        _core.PaletteCoordinator.HidePalette(restoreFocus: true);
+        if (File.Exists(path))
+        {
+            _ = PasteFileAsync(path, previous);
+            return;
+        }
+
+        Paster.PasteText(path, previous);
+    }
+
+    async Task PasteFileAsync(string path, IntPtr previous)
+    {
+        await _core.Clipboard.CopyFileAsync(path);
+        Paster.SendCtrlV(previous);
+    }
+
     public void Trash(string id)
     {
         var path = PathOf(id);
@@ -337,7 +359,7 @@ public sealed class FileSearchCoordinator
     static PaletteRow Hint(string id, string title, string subtitle, string glyph) =>
         new(id, title, subtitle, glyph);
 
-    static string? PathOf(string id)
+    public string? PathOf(string id)
     {
         if (!id.StartsWith("fs:", StringComparison.Ordinal) || id == "fs:up")
             return null;

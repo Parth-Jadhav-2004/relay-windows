@@ -93,8 +93,14 @@ internal static class WindowChrome
             window.AppWindow.Resize(size);
     }
 
-    public static void PlacePalette(Window window)
+    public static void PlacePalette(Window window, Tinycast.AppSettings? settings = null)
     {
+        if (settings is { PaletteRememberPosition: true } && settings.PaletteLeft >= 0 && settings.PaletteTop >= 0)
+        {
+            window.AppWindow.Move(new PointInt32((int)Math.Round(settings.PaletteLeft), (int)Math.Round(settings.PaletteTop)));
+            return;
+        }
+
         var display = DisplayArea.GetFromWindowId(window.AppWindow.Id, DisplayAreaFallback.Primary);
         var work = display.WorkArea;
         var size = window.AppWindow.Size;

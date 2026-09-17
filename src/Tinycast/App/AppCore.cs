@@ -13,6 +13,7 @@ using Tinycast.Features.Quicklinks;
 using Tinycast.Features.Onboarding;
 using Tinycast.Features.Settings;
 using Tinycast.Features.Snippets;
+using Tinycast.Features.Updates;
 using Tinycast.Features.WindowManagement;
 using Tinycast.Palette;
 using Tinycast.Platform;
@@ -42,6 +43,16 @@ public sealed class AppCore
     string _updateStatus = "";
     bool _updateBusy;
     bool _updateInstalling;
+    public HashSet<string> BackupCategories { get; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        BackupArchive.SettingsAndShortcuts,
+        BackupArchive.Clipboard,
+        BackupArchive.Snippets,
+        BackupArchive.Notes,
+        BackupArchive.Learning,
+    };
+    public string LastCommandOutput { get; set; } = "";
+    public StoredSnippet? PendingSnippet { get; set; }
 
     public AppSettings Settings { get; private set; } = new();
     public PaletteState Palette { get; } = new();
@@ -82,10 +93,7 @@ public sealed class AppCore
         : _updateBusy ? "Checking…"
         : _pendingUpdate is not null ? "Download and restart"
         : "Check for updates";
-    public string AboutUpdateCopy =>
-        string.IsNullOrWhiteSpace(_updateStatus)
-            ? GitHubAuth.StatusLine
-            : GitHubAuth.StatusLine + "\n" + _updateStatus;
+    public string AboutUpdateCopy => _updateStatus;
 
     AppCore()
     {
@@ -181,6 +189,7 @@ public sealed class AppCore
         Aliases = new AliasStore(AppPaths.AliasesFile);
         Visibility = new VisibilityStore(AppPaths.VisibilityFile);
         Snippets = JsonList.Load<StoredSnippet>(AppPaths.SnippetsFile);
+        MergeSnippetMarkdown();
         Quicklinks = JsonList.Load<Quicklink>(AppPaths.QuicklinksFile);
         CustomCommands = JsonList.Load<CustomCommand>(AppPaths.CustomCommandsFile);
         CalcHistory = JsonList.Load<CalcResult>(AppPaths.CalcHistoryFile);
@@ -308,8 +317,13 @@ public sealed class AppCore
             return;
         }
 
-        Meetings = (await CalendarService.UpcomingAsync()).ToList();
+        Meetings = (await CalendarService.UpcomingAsync()).Where(m =>
+                Settings.CalendarExcludedIds.Count == 0
+                || string.IsNullOrWhiteSpace(m.CalendarId)
+                || !Settings.CalendarExcludedIds.Contains(m.CalendarId))
+            .ToList();
         Palette.Notify();
+        UpdateTrayTitle();
     }
 
     void StartMeetingWatch()
@@ -344,7 +358,55 @@ public sealed class AppCore
     public void PersistSnippets()
     {
         JsonList.Save(AppPaths.SnippetsFile, Snippets);
+        WriteSnippetMarkdown();
         RefreshSnippetHook();
+    }
+
+    void MergeSnippetMarkdown()
+    {
+        if (!Directory.Exists(AppPaths.SnippetsDir))
+            return;
+        foreach (var file in Directory.EnumerateFiles(AppPaths.SnippetsDir, "*.md"))
+        {
+            StoredSnippet? parsed;
+            try { parsed = SnippetFrontmatter.Parse(file, File.ReadAllText(file)); }
+            catch (Exception) { continue; }
+            if (parsed is null || string.IsNullOrWhiteSpace(parsed.Text))
+                continue;
+            var id = "snippet:md:" + Path.GetFileNameWithoutExtension(file);
+            var existing = Snippets.FindIndex(s =>
+                s.Id == id
+                || (!string.IsNullOrWhiteSpace(parsed.Keyword)
+                    && s.Keyword.Equals(parsed.Keyword, StringComparison.OrdinalIgnoreCase)));
+            var snippet = parsed with { Id = existing >= 0 ? Snippets[existing].Id : id };
+            if (existing >= 0)
+                Snippets[existing] = snippet;
+            else
+                Snippets.Add(snippet);
+        }
+    }
+
+    void WriteSnippetMarkdown()
+    {
+        Directory.CreateDirectory(AppPaths.SnippetsDir);
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var snippet in Snippets)
+        {
+            var safe = string.Join("_", (string.IsNullOrWhiteSpace(snippet.Keyword) ? snippet.Name : snippet.Keyword)
+                .Split(Path.GetInvalidFileNameChars())).Trim();
+            if (string.IsNullOrWhiteSpace(safe))
+                safe = snippet.Id.Replace(":", "-");
+            var name = safe + ".md";
+            File.WriteAllText(Path.Combine(AppPaths.SnippetsDir, name), SnippetFrontmatter.Serialize(snippet));
+            keep.Add(name);
+        }
+
+        foreach (var extra in Directory.EnumerateFiles(AppPaths.SnippetsDir, "*.md"))
+        {
+            if (keep.Contains(Path.GetFileName(extra)))
+                continue;
+            try { File.Delete(extra); } catch (Exception) { }
+        }
     }
 
     public void RefreshSnippetHook() =>
@@ -416,7 +478,7 @@ public sealed class AppCore
 
     public Task<int> Confirm(DialogRequest request) => Dialogs.Confirm(request);
 
-    public void ShowNotes()
+    public void ShowNotes(string? id = null)
     {
         if (!Settings.NotesEnabled)
         {
@@ -435,6 +497,8 @@ public sealed class AppCore
 
         _notes.Activate();
         ApplyAppearance(_notes);
+        if (id is not null)
+            _notes.Open(id);
     }
 
     public NoteDocument CreateNote(string title)
@@ -526,9 +590,12 @@ public sealed class AppCore
                 return;
             var path = file.Path;
             ClipboardStore.Checkpoint();
+            var categories = BackupCategories.Count == 0
+                ? BackupArchive.AllCategories
+                : BackupCategories.ToList();
             BackupArchive.Write(
                 path,
-                [BackupArchive.SettingsAndShortcuts, BackupArchive.Snippets, BackupArchive.Notes, BackupArchive.Learning, BackupArchive.Clipboard],
+                categories,
                 SettingsSnapshot.Capture(Settings),
                 JsonSerializer.Serialize(Snippets),
                 AppPaths.NotesDir,
@@ -553,6 +620,13 @@ public sealed class AppCore
             var file = await picker.PickSingleFileAsync();
             if (file is null)
                 return;
+            var reason = BackupArchive.IncompatibleReason(BackupArchive.ReadManifest(file.Path));
+            if (reason is not null)
+            {
+                ShowMessage(reason, DialogTone.Danger);
+                return;
+            }
+
             var imported = BackupArchive.ReadSettings(file.Path);
             SettingsSnapshot.ApplyMirrored(Settings, imported);
             Persist();
@@ -628,6 +702,9 @@ public sealed class AppCore
                 return;
             _pendingUpdate = latest;
             _updateStatus = latest.Tag + " is ready.";
+            var quietNotes = UpdateRelease.NotesSummary(latest.Notes);
+            if (quietNotes.Length > 0)
+                _updateStatus += "\n" + (quietNotes.Length > 400 ? quietNotes[..400] + "…" : quietNotes);
             PublishUpdateUi();
         }
         catch (Exception ex)
@@ -649,12 +726,15 @@ public sealed class AppCore
             if (latest.Version <= UpdatesClient.Installed)
             {
                 _pendingUpdate = null;
-                _updateStatus = "You’re on " + UpdatesClient.InstalledLabel + ". Latest is " + latest.Tag + ".";
+                _updateStatus = "You’re on " + UpdatesClient.InstalledLabel + ".";
                 return;
             }
 
             _pendingUpdate = latest;
             _updateStatus = latest.Tag + " is ready.";
+            var notes = UpdateRelease.NotesSummary(latest.Notes);
+            if (notes.Length > 0)
+                _updateStatus += "\n" + (notes.Length > 400 ? notes[..400] + "…" : notes);
         }
         catch (Exception ex)
         {
@@ -763,8 +843,25 @@ public sealed class AppCore
 
     public void SaveCurrentLayout()
     {
+        var screens = WindowInventory.Screens();
         var slots = WindowInventory.Enumerate()
-            .Select(w => new WindowLayoutSlot(w.ProcessName, WindowInventory.Frame(w.Hwnd), 0))
+            .Select(w =>
+            {
+                var frame = WindowInventory.Frame(w.Hwnd);
+                var screen = 0;
+                for (var i = 0; i < screens.Count; i++)
+                {
+                    var b = screens[i].Frame;
+                    if (frame.X + frame.Width / 2 >= b.X && frame.X + frame.Width / 2 <= b.X + b.Width
+                        && frame.Y + frame.Height / 2 >= b.Y && frame.Y + frame.Height / 2 <= b.Y + b.Height)
+                    {
+                        screen = i;
+                        break;
+                    }
+                }
+
+                return new WindowLayoutSlot(w.ProcessName, frame, screen, w.Path);
+            })
             .ToList();
         Layouts.Add(new WindowLayout(Guid.NewGuid().ToString("n"), "Layout " + (Layouts.Count + 1), slots));
         PersistLayouts();
@@ -776,10 +873,17 @@ public sealed class AppCore
         var layout = Layouts.FirstOrDefault(l => l.Id == id);
         if (layout is null)
             return;
-        var windows = WindowInventory.Enumerate();
+        var windows = WindowInventory.Enumerate().ToList();
         foreach (var slot in layout.Slots)
         {
             var match = windows.FirstOrDefault(w => w.ProcessName.Equals(slot.ProcessName, StringComparison.OrdinalIgnoreCase));
+            if (match is null && !string.IsNullOrWhiteSpace(slot.Path))
+            {
+                try { ProcessLauncher.Open(slot.Path); }
+                catch (Exception) { }
+                continue;
+            }
+
             if (match is not null)
                 WindowInventory.Place(match.Hwnd, slot.Frame);
         }
@@ -833,7 +937,7 @@ public sealed class AppCore
             return;
         var hwnd = NativeMethods.GetForegroundWindow();
         if (!TryPasteSnippet(snippet, hwnd, hidePalette: false, backspace: keyword.Length))
-            PaletteCoordinator.ShowPalette(PaletteMode.Snippets, seeding: snippet.Name);
+            PaletteCoordinator.ShowPalette(PaletteMode.Snippets);
     }
 
     public bool TryPasteSnippet(StoredSnippet snippet, IntPtr previousHwnd, bool hidePalette = true, int backspace = 0)
@@ -853,9 +957,12 @@ public sealed class AppCore
         }, args, Snippets);
         if (expanded.MissingArguments.Count > 0)
         {
-            ShowMessage("Type the argument in the palette, then run the snippet.");
+            PendingSnippet = snippet;
+            ShowMessage("Type a value for " + expanded.MissingArguments[0].Name + ", then Enter.");
             return false;
         }
+
+        PendingSnippet = null;
 
         if (hidePalette)
             PaletteCoordinator.HidePalette();
@@ -866,6 +973,61 @@ public sealed class AppCore
         if (expanded.CursorOffsetFromEnd is > 0 and var left)
             Paster.MoveCaretLeft(left);
         return true;
+    }
+
+    public void JoinNextMeeting()
+    {
+        var join = MeetingJoinCard.NextJoinable(Meetings, DateTime.Now, Settings.CalendarExcludedIds);
+        if (join?.Link is null)
+        {
+            ShowMessage("No joinable meeting in the next two hours.");
+            return;
+        }
+
+        PaletteCoordinator.HidePalette(restoreFocus: false);
+        ProcessLauncher.OpenUri(join.Link.Url.ToString());
+    }
+
+    public void CopyNextMeetingLink()
+    {
+        var join = MeetingJoinCard.NextJoinable(Meetings, DateTime.Now, Settings.CalendarExcludedIds);
+        if (join?.Link is null)
+        {
+            ShowMessage("No meeting link to copy.");
+            return;
+        }
+
+        Clipboard.CopyText(join.Link.Url.ToString());
+        ShowMessage("Copied meeting link");
+        PaletteCoordinator.HidePalette();
+    }
+
+    public async Task CreateCalendarEventAsync()
+    {
+        try
+        {
+            var appointment = new Windows.ApplicationModel.Appointments.Appointment
+            {
+                StartTime = DateTimeOffset.Now.AddHours(1),
+                Duration = TimeSpan.FromMinutes(30),
+                Subject = "",
+            };
+            await Windows.ApplicationModel.Appointments.AppointmentManager.ShowAddAppointmentAsync(
+                appointment,
+                new Windows.Foundation.Rect(0, 0, 0, 0));
+        }
+        catch (Exception ex)
+        {
+            Log.Write("create event: " + ex.Message);
+            ProcessLauncher.OpenUri("ms-calendar:");
+        }
+    }
+
+    void UpdateTrayTitle()
+    {
+        var join = MeetingJoinCard.NextJoinable(Meetings, DateTime.Now, Settings.CalendarExcludedIds);
+        var tip = join is null ? "Tinycast" : "Tinycast · " + join.Title;
+        _tray?.SetTip(tip);
     }
 
     void DispatchHotKey(string id)

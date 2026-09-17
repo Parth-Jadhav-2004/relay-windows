@@ -118,15 +118,21 @@ public static class EmojiCatalog
         E("🆓", "free", "Symbols"),
     ];
 
-    public static IReadOnlyList<EmojiItem> Search(string query)
+    public static IReadOnlyList<EmojiItem> Search(string query, int skinTone = 0)
     {
-        if (string.IsNullOrWhiteSpace(query))
-            return All;
-        return All.Where(e =>
-                e.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || e.Group.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || e.Glyph.Contains(query))
-            .ToList();
+        IReadOnlyList<EmojiItem> source = All;
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            source = All.Where(e =>
+                    e.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || e.Group.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || e.Glyph.Contains(query))
+                .ToList();
+        }
+
+        if (skinTone <= 0)
+            return source;
+        return source.Select(e => e with { Glyph = EmojiSkin.Apply(e.Glyph, skinTone) }).ToList();
     }
 
     static EmojiItem E(string glyph, string name, string group) => new(glyph, name, group);

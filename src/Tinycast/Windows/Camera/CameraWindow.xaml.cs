@@ -1,10 +1,14 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Tinycast.DesignSystem;
 using Tinycast.Platform;
+using Windows.Devices.Enumeration;
 using Windows.Graphics.Imaging;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
+using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace Tinycast;
 
@@ -14,9 +18,13 @@ public sealed partial class CameraWindow : Window
     MediaCapture? _capture;
     MediaFrameReader? _reader;
     SoftwareBitmapSource? _bitmapSource;
+    SoftwareBitmap? _lastFrame;
+    IReadOnlyList<DeviceInformation> _devices = [];
+    int _deviceIndex;
     int _presenting;
     int _generation;
     bool _closed;
+    bool _mirror;
 
     public CameraWindow(AppCore core)
     {
@@ -24,8 +32,15 @@ public sealed partial class CameraWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         WindowChrome.ResizeDips(this, 720, 480);
+        Activated += OnActivated;
         Closed += (_, _) => _ = StopAsync();
         _ = StartAsync();
+    }
+
+    void OnActivated(object sender, WindowActivatedEventArgs e)
+    {
+        if (e.WindowActivationState == WindowActivationState.Deactivated && !_closed)
+            Close();
     }
 
     async Task StartAsync()
@@ -39,11 +54,21 @@ public sealed partial class CameraWindow : Window
         var gen = Interlocked.Increment(ref _generation);
         try
         {
+            _devices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);
+            if (_devices.Count == 0)
+            {
+                Status.Text = "No camera found. Opening the Camera app instead.";
+                ProcessLauncher.OpenUri("microsoft.windows.camera:");
+                return;
+            }
+
+            _deviceIndex = Math.Clamp(_deviceIndex, 0, _devices.Count - 1);
             _capture = new MediaCapture();
             await _capture.InitializeAsync(new MediaCaptureInitializationSettings
             {
                 StreamingCaptureMode = StreamingCaptureMode.Video,
                 MemoryPreference = MediaCaptureMemoryPreference.Cpu,
+                VideoDeviceId = _devices[_deviceIndex].Id,
             });
             if (_closed || gen != _generation)
             {
@@ -108,6 +133,8 @@ public sealed partial class CameraWindow : Window
             {
                 if (_closed)
                     return;
+                _lastFrame?.Dispose();
+                _lastFrame = SoftwareBitmap.Copy(display);
                 _bitmapSource ??= new SoftwareBitmapSource();
                 await _bitmapSource.SetBitmapAsync(display);
                 if (_closed)
@@ -129,11 +156,59 @@ public sealed partial class CameraWindow : Window
         }
     }
 
+    async void OnSnapshot(object sender, RoutedEventArgs e)
+    {
+        if (_lastFrame is null)
+        {
+            _core.ShowMessage("No frame yet.");
+            return;
+        }
+
+        try
+        {
+            var folder = await KnownFolders.PicturesLibrary.CreateFolderAsync("Tinycast", CreationCollisionOption.OpenIfExists);
+            var file = await folder.CreateFileAsync("snapshot-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".png", CreationCollisionOption.GenerateUniqueName);
+            using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
+            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+            encoder.SetSoftwareBitmap(_lastFrame);
+            await encoder.FlushAsync();
+            await _core.Clipboard.CopyImageAsync(file.Path);
+            _core.ShowMessage("Snapshot saved");
+        }
+        catch (Exception ex)
+        {
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    async void OnCycle(object sender, RoutedEventArgs e)
+    {
+        if (_devices.Count < 2)
+        {
+            _core.ShowMessage("Only one camera.");
+            return;
+        }
+
+        _deviceIndex = (_deviceIndex + 1) % _devices.Count;
+        await DisposeCaptureAsync();
+        _closed = false;
+        await StartAsync();
+    }
+
+    void OnMirror(object sender, RoutedEventArgs e)
+    {
+        _mirror = !_mirror;
+        Preview.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+        Preview.RenderTransform = new ScaleTransform { ScaleX = _mirror ? -1 : 1 };
+    }
+
     async Task StopAsync()
     {
         _closed = true;
         Interlocked.Increment(ref _generation);
         await DisposeCaptureAsync();
+        _lastFrame?.Dispose();
+        _lastFrame = null;
     }
 
     async Task DisposeCaptureAsync()

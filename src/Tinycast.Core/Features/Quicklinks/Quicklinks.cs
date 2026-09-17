@@ -21,11 +21,15 @@ public static class QuicklinkDestination
     public static bool RegexDrive(string value) =>
         value.Length >= 2 && char.IsLetter(value[0]) && value[1] == ':';
 
-    public static string Expand(string destination, string argument)
+    public static string Expand(string destination, string argument, string selection = "", string clipboard = "", DateTime? now = null)
     {
+        var when = now ?? DateTime.Now;
         var encoded = Uri.EscapeDataString(argument);
         return destination
             .Replace("{argument}", argument, StringComparison.OrdinalIgnoreCase)
-            .Replace("{query}", encoded, StringComparison.OrdinalIgnoreCase);
+            .Replace("{query}", encoded, StringComparison.OrdinalIgnoreCase)
+            .Replace("{selection}", selection, StringComparison.OrdinalIgnoreCase)
+            .Replace("{clipboard}", clipboard, StringComparison.OrdinalIgnoreCase)
+            .Replace("{date}", when.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
     }
 }

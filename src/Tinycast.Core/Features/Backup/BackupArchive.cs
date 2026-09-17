@@ -13,6 +13,19 @@ public static class BackupArchive
     public const string Snippets = "snippets";
     public const string Notes = "notes";
     public const string Learning = "learning";
+    public const string SchemaVersion = "1";
+
+    public static IReadOnlyList<string> AllCategories { get; } =
+        [SettingsAndShortcuts, Clipboard, Snippets, Notes, Learning];
+
+    public static string? IncompatibleReason(BackupManifest? manifest)
+    {
+        if (manifest is null)
+            return "This archive has no Tinycast manifest.";
+        if (manifest.Version != SchemaVersion && manifest.Version != "1.0")
+            return "This backup was made with a newer Tinycast and cannot be imported.";
+        return null;
+    }
 
     public static void Write(
         string zipPath,
@@ -26,7 +39,7 @@ public static class BackupArchive
         if (File.Exists(zipPath))
             File.Delete(zipPath);
         using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
-        var manifest = new BackupManifest("1", DateTime.UtcNow, categories);
+        var manifest = new BackupManifest(SchemaVersion, DateTime.UtcNow, categories);
         WriteEntry(zip, "manifest.json", JsonSerializer.Serialize(manifest));
         if (categories.Contains(SettingsAndShortcuts))
         {

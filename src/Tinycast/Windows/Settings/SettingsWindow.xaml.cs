@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Tinycast.DesignSystem;
+using Tinycast.Features.Backup;
 using Tinycast.Features.Commands;
 using Tinycast.Features.Clipboard;
 using Tinycast.Features.HotKeys;
@@ -32,6 +33,10 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         WindowChrome.ResizeDips(this, Theme.Size.SettingsWindowWidth, Theme.Size.SettingsWindowHeight + 40);
+        if (Content is Grid root && root.ColumnDefinitions.Count > 0)
+            root.ColumnDefinitions[0].Width = new GridLength(Theme.Size.SettingsSidebar + Theme.Size.SettingsSidebarScrollGutter);
+        SidebarHost.Margin = new Thickness(0, 0, Theme.Size.SettingsSidebarScrollGutter, 0);
+        SettingsSearch.Margin = new Thickness(0, 0, Theme.Size.SettingsSidebarScrollGutter, 8);
         _panes = new Dictionary<SettingsTab, StackPanel>
         {
             [SettingsTab.General] = GeneralPane,
@@ -89,9 +94,13 @@ public sealed partial class SettingsWindow : Window
         if (tab == SettingsTab.WindowManagement)
             BindLayouts();
         if (tab == SettingsTab.Clipboard)
-            ClipboardFilterHint.Text = "Ctrl+P cycles " + ClipboardListFilterLogic.Label(_core.ClipboardCoordinator.Filter) + ".";
+            ClipboardFilterHint.Text = "Ctrl+P cycles " + ClipboardListFilterLogic.Label(_core.ClipboardCoordinator.Filter) + ". Number keys paste pinned items.";
         if (tab == SettingsTab.Hotkeys)
             RefreshHotKeys();
+        if (tab == SettingsTab.Permissions)
+            RefreshPermissions();
+        if (tab == SettingsTab.Backup)
+            RefreshBackupChecks();
     }
 
     void RebuildSidebar()
@@ -142,6 +151,16 @@ public sealed partial class SettingsWindow : Window
         LaunchSwitch.IsOn = _core.Settings.LaunchAtLogin;
         TraySwitch.IsOn = _core.Settings.ShowInTray;
         TransparencySlider.Value = _core.Settings.PaletteTransparency;
+        InterfaceSizeBox.SelectedIndex = _core.Settings.InterfaceSize switch
+        {
+            "compact" => 0,
+            "large" => 2,
+            _ => 1,
+        };
+        CompactPaletteSwitch.IsOn = _core.Settings.CompactPalette;
+        RememberPositionSwitch.IsOn = _core.Settings.PaletteRememberPosition;
+        EscapeClearsSwitch.IsOn = _core.Settings.PaletteEscapeClearsQuery;
+        PopToRootBox.Value = _core.Settings.PalettePopToRootSeconds;
         ClipboardSwitch.IsOn = _core.Settings.ClipboardEnabled;
         WindowSwitch.IsOn = _core.Settings.WindowManagementEnabled;
         FileSearchSwitch.IsOn = _core.Settings.FileSearchEnabled;
@@ -167,6 +186,14 @@ public sealed partial class SettingsWindow : Window
             _ => 1,
         };
         EmojiColumnsSlider.Value = _core.Settings.EmojiColumns;
+        EmojiSkinBox.SelectedIndex = Math.Clamp(_core.Settings.EmojiSkinTone, 0, 5);
+        ClipboardOcrSwitch.IsOn = _core.Settings.ClipboardOcrEnabled;
+        ClipboardKeepOpenSwitch.IsOn = _core.Settings.ClipboardKeepOpen;
+        ClipboardActionBox.SelectedIndex = string.Equals(_core.Settings.ClipboardDefaultAction, "copy", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        ClipboardRetentionBox.Value = _core.Settings.ClipboardRetentionDays;
+        ClipboardIgnoredBox.Text = string.Join(Environment.NewLine, _core.Settings.ClipboardIgnoredApps);
+        NavExcludedBox.Text = string.Join(Environment.NewLine, _core.Settings.NavigationExcludedApps);
+        CalendarExcludedBox.Text = string.Join(Environment.NewLine, _core.Settings.CalendarExcludedIds);
         AiModelBox.Text = _core.Ai.Model;
         AiEndpointBox.Text = _core.Ai.Endpoint;
         AiKeyBox.Password = CredentialStore.Get("ai") ?? "";
@@ -186,12 +213,14 @@ public sealed partial class SettingsWindow : Window
         BindQuicklinks();
         RefreshHotKeys();
         RefreshAboutUpdates();
+        RefreshPermissions();
+        RefreshBackupChecks();
     }
 
     public void RefreshAboutUpdates()
     {
-        AboutIdentity.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel + "  ·  " + UpdatesClient.Repository;
-        AboutMcp.Text = _core.McpStatus();
+        AboutIdentity.Text = UpdatesClient.InstalledLabel;
+        AboutMcp.Visibility = Visibility.Collapsed;
         AboutUpdateStatus.Text = _core.AboutUpdateCopy;
         UpdatesButton.Content = _core.UpdatesButtonLabel;
         UpdatesButton.IsEnabled = !_core.UpdatesBusy;
@@ -212,6 +241,8 @@ public sealed partial class SettingsWindow : Window
         BuiltinCommands.AiChat,
         BuiltinCommands.Schedule,
         BuiltinCommands.Camera,
+        BuiltinCommands.JoinNext,
+        BuiltinCommands.CreateEvent,
         BuiltinCommands.Quit,
     ];
 
@@ -323,6 +354,10 @@ public sealed partial class SettingsWindow : Window
     void BindSnippets()
     {
         SnippetsList.ItemsSource = _core.Snippets.Select(s => s.Name + (string.IsNullOrWhiteSpace(s.Keyword) ? "" : "  ·  " + s.Keyword)).ToList();
+        var conflicts = SnippetFrontmatter.ConflictingKeywords(_core.Snippets);
+        SnippetConflictText.Text = conflicts.Count == 0
+            ? "Markdown files with name/keyword frontmatter load from the snippets folder."
+            : "Conflicting keywords: " + string.Join(", ", conflicts);
     }
 
     void OnSnippetSelected(object sender, SelectionChangedEventArgs e)
@@ -401,7 +436,8 @@ public sealed partial class SettingsWindow : Window
         _selectedLayoutId = layout.Id;
         LayoutNameBox.Text = layout.Name;
         LayoutSlotsBox.Text = string.Join(Environment.NewLine, layout.Slots.Select(s =>
-            s.ProcessName + "  " + (int)s.Frame.X + "  " + (int)s.Frame.Y + "  " + (int)s.Frame.Width + "  " + (int)s.Frame.Height));
+            s.ProcessName + "  " + (int)s.Frame.X + "  " + (int)s.Frame.Y + "  " + (int)s.Frame.Width + "  " + (int)s.Frame.Height
+            + (string.IsNullOrWhiteSpace(s.Path) ? "" : "  " + s.Path)));
     }
 
     void OnCaptureLayout(object sender, RoutedEventArgs e)
@@ -427,7 +463,16 @@ public sealed partial class SettingsWindow : Window
                 continue;
             if (!double.TryParse(parts[^4], out var x) || !double.TryParse(parts[^3], out var y)
                 || !double.TryParse(parts[^2], out var w) || !double.TryParse(parts[^1], out var h))
+            {
+                if (parts.Length < 6
+                    || !double.TryParse(parts[^5], out x) || !double.TryParse(parts[^4], out y)
+                    || !double.TryParse(parts[^3], out w) || !double.TryParse(parts[^2], out h))
+                    continue;
+                var nameWithPath = string.Join(' ', parts.Take(parts.Length - 5));
+                slots.Add(new WindowLayoutSlot(nameWithPath, new RectD(x, y, w, h), 0, parts[^1]));
                 continue;
+            }
+
             var name = string.Join(' ', parts.Take(parts.Length - 4));
             slots.Add(new WindowLayoutSlot(name, new RectD(x, y, w, h), 0));
         }
@@ -644,10 +689,10 @@ public sealed partial class SettingsWindow : Window
             "custom:" + Guid.NewGuid().ToString("n"),
             CmdNameBox.Text.Trim(),
             CmdFileBox.Text.Trim(),
-            [],
+            SplitArgs(CmdArgsBox.Text),
             true));
         _core.PersistCustomCommands();
-        CmdNameBox.Text = CmdFileBox.Text = "";
+        CmdNameBox.Text = CmdFileBox.Text = CmdArgsBox.Text = "";
         BindCustomCommands();
     }
 
@@ -673,8 +718,8 @@ public sealed partial class SettingsWindow : Window
 
         var conflicts = HotKeyConflicts.Find(_core.HotKeys);
         HotKeyStatus.Text = conflicts.Count == 0
-            ? _pendingChord is { } pending ? "Captured " + pending.Label : ""
-            : conflicts.Count + " conflict(s).";
+            ? _pendingChord is { } pending ? "Captured " + pending.Label : "Select a row and Rebind selected to replace its chord."
+            : string.Join(" · ", conflicts.Select(c => c.A.CommandId + " conflicts with " + c.B.CommandId));
     }
 
     void OnRecordHotKey(object sender, RoutedEventArgs e)
@@ -726,7 +771,12 @@ public sealed partial class SettingsWindow : Window
     }
 
     void OnOpenNotes(object sender, RoutedEventArgs e) => _core.ShowNotes();
-    void OnExportBackup(object sender, RoutedEventArgs e) => _core.ExportBackup();
+    void OnRevealNotes(object sender, RoutedEventArgs e) => ProcessLauncher.Open(AppPaths.NotesDir);
+    void OnExportBackup(object sender, RoutedEventArgs e)
+    {
+        SyncBackupCategories();
+        _core.ExportBackup();
+    }
     void OnImportBackup(object sender, RoutedEventArgs e) => _core.ImportBackup();
     void OnUpdatesButton(object sender, RoutedEventArgs e)
     {
@@ -737,4 +787,208 @@ public sealed partial class SettingsWindow : Window
     }
     void OnOpenSupport(object sender, RoutedEventArgs e) => _core.ShowSupport();
     void OnReplayOnboarding(object sender, RoutedEventArgs e) => _core.ShowOnboarding(force: true);
+
+    void OnPaletteChromeChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        SavePaletteChrome();
+    }
+
+    void OnInterfaceSizeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        SavePaletteChrome();
+    }
+
+    void SavePaletteChrome()
+    {
+        if (InterfaceSizeBox.SelectedItem is ComboBoxItem size)
+            _core.Settings.InterfaceSize = size.Tag?.ToString() ?? "standard";
+        _core.Settings.CompactPalette = CompactPaletteSwitch.IsOn;
+        _core.Settings.PaletteRememberPosition = RememberPositionSwitch.IsOn;
+        _core.Settings.PaletteEscapeClearsQuery = EscapeClearsSwitch.IsOn;
+        _core.Persist();
+        _core.PaletteWindow?.ResizePalette();
+        _core.PaletteWindow?.ApplySurface();
+    }
+
+    void OnPopToRootChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.PalettePopToRootSeconds = (int)Math.Clamp(PopToRootBox.Value, 0, 120);
+        _core.Persist();
+    }
+
+    void OnClipboardPolicyChanged(object sender, RoutedEventArgs e) => SaveClipboardPolicy();
+    void OnClipboardActionChanged(object sender, SelectionChangedEventArgs e) => SaveClipboardPolicy();
+
+    void SaveClipboardPolicy()
+    {
+        if (!_ready)
+            return;
+        _core.Settings.ClipboardOcrEnabled = ClipboardOcrSwitch.IsOn;
+        _core.Settings.ClipboardKeepOpen = ClipboardKeepOpenSwitch.IsOn;
+        if (ClipboardActionBox.SelectedItem is ComboBoxItem action)
+            _core.Settings.ClipboardDefaultAction = action.Tag?.ToString() ?? "paste";
+        _core.Settings.ClipboardIgnoredApps = SplitLines(ClipboardIgnoredBox.Text);
+        _core.Persist();
+    }
+
+    void OnClipboardRetentionChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.ClipboardRetentionDays = (int)Math.Clamp(ClipboardRetentionBox.Value, 0, 3650);
+        _core.Persist();
+    }
+
+    void OnEmojiSkinChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready || EmojiSkinBox.SelectedItem is not ComboBoxItem item)
+            return;
+        if (int.TryParse(item.Tag?.ToString(), out var tone))
+            _core.Settings.EmojiSkinTone = Math.Clamp(tone, 0, 5);
+        _core.Persist();
+        _core.Palette.Notify();
+    }
+
+    void OnNavigationExcludedChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.NavigationExcludedApps = SplitLines(NavExcludedBox.Text);
+        _core.Persist();
+    }
+
+    void OnCalendarExcludedChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready)
+            return;
+        _core.Settings.CalendarExcludedIds = SplitLines(CalendarExcludedBox.Text);
+        _core.Persist();
+        _ = _core.RefreshCalendarAsync();
+    }
+
+    void OnRecordSelectedHotKey(object sender, RoutedEventArgs e)
+    {
+        var index = HotKeyList.SelectedIndex;
+        if (index < 0 || index >= _core.HotKeys.Count)
+        {
+            HotKeyStatus.Text = "Select a binding first.";
+            return;
+        }
+
+        HotKeyStatus.Text = "Press a shortcut…";
+        var target = index;
+        _core.RecordHotKey(chord =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _core.HotKeys[target].Chord = chord;
+                _core.PersistHotKeys();
+                RefreshHotKeys();
+                HotKeyStatus.Text = "Updated " + _core.HotKeys[target].CommandId + " to " + chord.Label;
+            });
+        });
+    }
+
+    void RefreshPermissions()
+    {
+        var lines = new List<string>
+        {
+            "Calendar: " + (_core.Settings.CalendarEnabled ? "enabled in Tinycast" : "off until you request access"),
+            "Camera preview: " + (_core.Settings.CameraPreview ? "on" : "off"),
+            "Microphone is only used if an app you launch asks for it.",
+        };
+        PermissionsStatus.Text = string.Join(Environment.NewLine, lines);
+    }
+
+    void OnOpenPrivacyCalendar(object sender, RoutedEventArgs e) => ProcessLauncher.OpenUri("ms-settings:privacy-calendar");
+    void OnOpenPrivacyCamera(object sender, RoutedEventArgs e) => ProcessLauncher.OpenUri("ms-settings:privacy-webcam");
+    void OnOpenPrivacyMicrophone(object sender, RoutedEventArgs e) => ProcessLauncher.OpenUri("ms-settings:privacy-microphone");
+    void OnOpenWindowsSettings(object sender, RoutedEventArgs e) => ProcessLauncher.OpenUri("ms-settings:");
+
+    void RefreshBackupChecks()
+    {
+        BackupSettingsCheck.IsChecked = _core.BackupCategories.Contains(BackupArchive.SettingsAndShortcuts);
+        BackupSnippetsCheck.IsChecked = _core.BackupCategories.Contains(BackupArchive.Snippets);
+        BackupNotesCheck.IsChecked = _core.BackupCategories.Contains(BackupArchive.Notes);
+        BackupLearningCheck.IsChecked = _core.BackupCategories.Contains(BackupArchive.Learning);
+        BackupClipboardCheck.IsChecked = _core.BackupCategories.Contains(BackupArchive.Clipboard);
+        BackupStatus.Text = "Imports refuse archives from a newer schema. Capability flags are never restored.";
+    }
+
+    void SyncBackupCategories()
+    {
+        _core.BackupCategories.Clear();
+        if (BackupSettingsCheck.IsChecked == true)
+            _core.BackupCategories.Add(BackupArchive.SettingsAndShortcuts);
+        if (BackupSnippetsCheck.IsChecked == true)
+            _core.BackupCategories.Add(BackupArchive.Snippets);
+        if (BackupNotesCheck.IsChecked == true)
+            _core.BackupCategories.Add(BackupArchive.Notes);
+        if (BackupLearningCheck.IsChecked == true)
+            _core.BackupCategories.Add(BackupArchive.Learning);
+        if (BackupClipboardCheck.IsChecked == true)
+            _core.BackupCategories.Add(BackupArchive.Clipboard);
+    }
+
+    async void OnExportQuicklinks(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileSavePicker();
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowChrome.Hwnd(this));
+            picker.SuggestedFileName = "tinycast-quicklinks";
+            picker.FileTypeChoices.Add("JSON", [".json"]);
+            var file = await picker.PickSaveFileAsync();
+            if (file is null)
+                return;
+            await File.WriteAllTextAsync(file.Path, System.Text.Json.JsonSerializer.Serialize(_core.Quicklinks, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            _core.ShowMessage("Quicklinks exported");
+        }
+        catch (Exception ex)
+        {
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    async void OnImportQuicklinks(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowChrome.Hwnd(this));
+            picker.FileTypeFilter.Add(".json");
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+                return;
+            var incoming = System.Text.Json.JsonSerializer.Deserialize<List<Quicklink>>(await File.ReadAllTextAsync(file.Path)) ?? [];
+            foreach (var link in incoming)
+            {
+                if (_core.Quicklinks.Any(q => q.Id == link.Id))
+                    continue;
+                _core.Quicklinks.Add(link);
+            }
+
+            _core.PersistQuicklinks();
+            _core.RefreshFallbacks();
+            BindQuicklinks();
+            _core.ShowMessage("Quicklinks imported");
+        }
+        catch (Exception ex)
+        {
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    static IReadOnlyList<string> SplitArgs(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+        return text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 }

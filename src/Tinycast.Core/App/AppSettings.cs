@@ -18,8 +18,8 @@ public sealed class AppSettings
     public bool ClipboardEnabled { get; set; } = true;
     public bool WindowManagementEnabled { get; set; } = true;
     public bool FileSearchEnabled { get; set; } = true;
-    public bool NotesEnabled { get; set; } = true;
-    public bool QuicklinksEnabled { get; set; } = true;
+    public bool NotesEnabled { get; set; }
+    public bool QuicklinksEnabled { get; set; }
     public bool CustomCommandsEnabled { get; set; } = true;
     public bool NavigationEnabled { get; set; } = true;
     public List<string> FileSearchScopes { get; set; } = [];
@@ -27,4 +27,19 @@ public sealed class AppSettings
     public int WindowGap { get; set; } = 8;
     public string WindowCycle { get; set; } = "Sizes";
     public int EmojiColumns { get; set; } = 8;
+    public bool ClipboardOcrEnabled { get; set; }
+    public int ClipboardRetentionDays { get; set; } = 90;
+    public bool ClipboardKeepOpen { get; set; }
+    public string ClipboardDefaultAction { get; set; } = "paste";
+    public List<string> ClipboardIgnoredApps { get; set; } = [];
+    public int EmojiSkinTone { get; set; }
+    public bool CompactPalette { get; set; }
+    public bool PaletteRememberPosition { get; set; }
+    public int PalettePopToRootSeconds { get; set; }
+    public bool PaletteEscapeClearsQuery { get; set; } = true;
+    public List<string> CalendarExcludedIds { get; set; } = [];
+    public List<string> NavigationExcludedApps { get; set; } = [];
+    public double PaletteLeft { get; set; } = -1;
+    public double PaletteTop { get; set; } = -1;
 }
+

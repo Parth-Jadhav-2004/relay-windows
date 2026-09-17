@@ -159,6 +159,35 @@ public sealed class ClipboardStore : IDisposable
         }
     }
 
+    public void PruneUnpinnedOlderThan(DateTime utcCutoff)
+    {
+        List<long> ids;
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT id FROM items WHERE pinned = 0 AND created_at < $cut";
+            cmd.Parameters.AddWithValue("$cut", utcCutoff.ToString("o"));
+            ids = [];
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                ids.Add(reader.GetInt64(0));
+        }
+
+        foreach (var id in ids)
+            Delete(id);
+    }
+
+    public IReadOnlyList<ClipboardItem> Pinned(int limit = 9)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT * FROM items WHERE pinned = 1 ORDER BY created_at DESC LIMIT $limit";
+            cmd.Parameters.AddWithValue("$limit", limit);
+            return ReadAll(cmd);
+        }
+    }
+
     public ClipboardItem? Get(long id)
     {
         lock (_gate)

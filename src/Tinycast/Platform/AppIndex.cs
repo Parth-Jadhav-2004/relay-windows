@@ -387,11 +387,17 @@ internal static class WindowInventory
                 return true;
             NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
             var name = "";
-            try { name = Process.GetProcessById((int)pid).ProcessName; }
+            string? path = null;
+            try
+            {
+                var process = Process.GetProcessById((int)pid);
+                name = process.ProcessName;
+                path = process.MainModule?.FileName;
+            }
             catch (Exception) { }
             if (name.Equals("Tinycast", StringComparison.OrdinalIgnoreCase))
                 return true;
-            list.Add(new(hwnd, title.ToString(), name, NativeMethods.IsIconic(hwnd)));
+            list.Add(new(hwnd, title.ToString(), name, NativeMethods.IsIconic(hwnd), path));
             return true;
         }, IntPtr.Zero);
         return list;

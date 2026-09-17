@@ -87,6 +87,12 @@ public sealed partial class NotesWindow : Window
         _core.ShowMessage("Note saved", DialogTone.Success);
     }
 
+    public void Open(string id)
+    {
+        ReloadKeeping(id);
+        Activate();
+    }
+
     void ReloadKeeping(string? id)
     {
         var keep = id ?? _current?.Id;

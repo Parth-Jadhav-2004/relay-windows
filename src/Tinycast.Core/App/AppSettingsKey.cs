@@ -28,6 +28,20 @@ public static class AppSettingsKey
     public const string WindowGap = "windowGap";
     public const string WindowCycle = "windowCycle";
     public const string EmojiColumns = "emojiColumns";
+    public const string ClipboardOcrEnabled = "clipboardOcrEnabled";
+    public const string ClipboardRetentionDays = "clipboardRetentionDays";
+    public const string ClipboardKeepOpen = "clipboardKeepOpen";
+    public const string ClipboardDefaultAction = "clipboardDefaultAction";
+    public const string ClipboardIgnoredApps = "clipboardIgnoredApps";
+    public const string EmojiSkinTone = "emojiSkinTone";
+    public const string CompactPalette = "compactPalette";
+    public const string PaletteRememberPosition = "paletteRememberPosition";
+    public const string PalettePopToRootSeconds = "palettePopToRootSeconds";
+    public const string PaletteEscapeClearsQuery = "paletteEscapeClearsQuery";
+    public const string CalendarExcludedIds = "calendarExcludedIds";
+    public const string NavigationExcludedApps = "navigationExcludedApps";
+    public const string PaletteLeft = "paletteLeft";
+    public const string PaletteTop = "paletteTop";
 
     public static IReadOnlyList<string> All { get; } =
     [
@@ -37,5 +51,9 @@ public static class AppSettingsKey
         WindowManagementEnabled, FileSearchEnabled, NotesEnabled, QuicklinksEnabled,
         CustomCommandsEnabled, NavigationEnabled, FileSearchScopes, FileSearchIgnorePatterns,
         WindowGap, WindowCycle, EmojiColumns,
+        ClipboardOcrEnabled, ClipboardRetentionDays, ClipboardKeepOpen, ClipboardDefaultAction,
+        ClipboardIgnoredApps, EmojiSkinTone, CompactPalette, PaletteRememberPosition,
+        PalettePopToRootSeconds, PaletteEscapeClearsQuery, CalendarExcludedIds,
+        NavigationExcludedApps, PaletteLeft, PaletteTop,
     ];
 }

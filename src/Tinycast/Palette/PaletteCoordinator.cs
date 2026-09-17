@@ -5,6 +5,8 @@ namespace Tinycast;
 public sealed class PaletteCoordinator
 {
     readonly AppCore _core;
+    DateTime _hiddenAt = DateTime.MinValue;
+    PaletteMode _hiddenMode = PaletteMode.Launcher;
 
     public PaletteCoordinator(AppCore core) => _core = core;
 
@@ -15,9 +17,14 @@ public sealed class PaletteCoordinator
     public void TogglePalette()
     {
         if (IsVisible)
+        {
             HidePalette();
-        else
-            ShowPalette(PaletteMode.Launcher);
+            return;
+        }
+
+        var seconds = _core.Settings.PalettePopToRootSeconds;
+        var keep = seconds > 0 && DateTime.UtcNow - _hiddenAt < TimeSpan.FromSeconds(seconds);
+        ShowPalette(keep ? _hiddenMode : PaletteMode.Launcher, restoreAnyMode: keep);
     }
 
     public void TogglePalette(PaletteMode mode)
@@ -53,13 +60,24 @@ public sealed class PaletteCoordinator
 
     public void HidePalette(bool restoreFocus = true)
     {
+        _hiddenAt = DateTime.UtcNow;
+        _hiddenMode = _core.Palette.Mode;
         _core.FileSearchCoordinator.Reset();
         _core.PaletteWindow?.HidePalette(restoreFocus);
-        _core.Palette.Prepare(PaletteMode.Launcher);
+        if (_core.Settings.PalettePopToRootSeconds <= 0)
+            _core.Palette.Prepare(PaletteMode.Launcher);
     }
 
     public void HandleEscape()
     {
+        if (PaletteEscape.ClearsQueryFirst(_core.Palette.Query, _core.Settings.PaletteEscapeClearsQuery))
+        {
+            _core.Palette.Query = "";
+            _core.Palette.Selection = 0;
+            _core.Palette.Notify();
+            return;
+        }
+
         if (_core.Palette.Mode == PaletteMode.FileSearch && _core.FileSearchCoordinator.HandleEscape())
             return;
         if (_core.Palette.Pop())

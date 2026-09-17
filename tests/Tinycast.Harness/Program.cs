@@ -543,6 +543,7 @@ void Check(string name, bool ok, string? detail = null)
 }
 
 {
+    Check("update display version drops git suffix", UpdateRelease.DisplayVersion("0.3.2+c13e437") == "0.3.2");
     Check("update tag drops v", UpdateRelease.ParseTag("v0.2.0") == new Version(0, 2, 0));
     Check("update tag ignores prerelease suffix", UpdateRelease.ParseTag("v1.0.0-beta.1") == new Version(1, 0, 0));
     Check("update zip prefers x64", UpdateRelease.PickAsset(["notes.txt", "Tinycast-windows-x64.zip"], System.Runtime.InteropServices.Architecture.X64) == "Tinycast-windows-x64.zip");
@@ -583,6 +584,22 @@ void Check(string name, bool ok, string? detail = null)
         [new FallbackSpec { Id = FallbackCatalog.Shell, Enabled = false }, new FallbackSpec { Id = FallbackCatalog.Ai, Enabled = true }],
         []);
     Check("fallback merge keeps disable", merged.First(f => f.Id == FallbackCatalog.Shell).Enabled == false);
+    Check("clipboard color parses hex", ClipboardColor.TryParse("#0a0", out var c) && c.Hex == "#00AA00");
+    Check("clipboard policy ignores app", ClipboardPolicy.IsIgnored("C:\\Apps\\Slack.exe", ["Slack"]));
+    Check("clipboard policy retention", ClipboardPolicy.RetentionCutoff(90, new DateTime(2026, 9, 17, 0, 0, 0, DateTimeKind.Utc)) == new DateTime(2026, 6, 19, 0, 0, 0, DateTimeKind.Utc));
+    Check("escape clears query first", PaletteEscape.ClearsQueryFirst("foo", true) && !PaletteEscape.ClearsQueryFirst("", true));
+    Check("volume steps 50 percent is 25 ups", VolumeSteps.UpsFromPercent(50) == 25);
+    Check("emoji skin tints clap", EmojiSkin.Apply("👏", 3) != "👏");
+    var md = SnippetFrontmatter.Parse("sig.md", "---\nname: Sign-off\nkeyword: sig\n---\nThanks,\n{date}\n");
+    Check("snippet frontmatter name", md?.Name == "Sign-off" && md.Keyword == "sig");
+    Check("snippet conflict keywords", SnippetFrontmatter.ConflictingKeywords(
+        [new StoredSnippet("a", "A", "x", "1"), new StoredSnippet("b", "B", "x", "2")]).Contains("x"));
+    Check("quicklink expands clipboard token", QuicklinkDestination.Expand("https://q/?q={clipboard}", "", "", "hi") == "https://q/?q=hi");
+    Check("backup rejects future schema", BackupArchive.IncompatibleReason(new BackupManifest("99", DateTime.UtcNow, [])) is not null);
+    Check("calc color card", CalcColor.Evaluate("#ff00aa")?.CopyText == "#FF00AA");
+    Check("palette compact size is smaller", Theme.Size.PalettePanel("standard", true).Width < Theme.Size.PanelWidth);
+    Check("uninstall leftover labels megabytes", UninstallLeftoverLogic.SizeLabel(1_500_000).Contains("MB"));
+    Check("update notes strip marker", UpdateRelease.NotesSummary("Hello\n<!-- tinycast:install -->\ninstall") == "Hello");
 }
 
 Console.WriteLine();
