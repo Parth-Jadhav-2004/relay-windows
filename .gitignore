@@ -14,7 +14,7 @@ BundleArtifacts/
 *.msix
 *.msixupload
 publish/
-Relay-windows-*.zip
+*-windows-*.zip
 .idea/
 _ReSharper*/
 Generated\ Files/
