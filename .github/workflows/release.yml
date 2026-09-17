@@ -37,7 +37,7 @@ jobs:
           body: |
             Self-contained Tinycast for Windows (x64).
 
-            Check for Updates in the app downloads this zip and restarts into it.
+            Settings → About turns Check for updates into Download and restart.
 
             <!-- tinycast:install -->
             Or unzip `Tinycast-windows-x64.zip` into `%LOCALAPPDATA%\Programs\Tinycast`.

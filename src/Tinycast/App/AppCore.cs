@@ -38,6 +38,10 @@ public sealed class AppCore
     DispatcherQueueTimer? _meetingTimer;
     DateTime _meetingWatchArmedAt = DateTime.Now;
     readonly HashSet<string> _joinedMeetings = [];
+    GitHubRelease? _pendingUpdate;
+    string _updateStatus = "";
+    bool _updateBusy;
+    bool _updateInstalling;
 
     public AppSettings Settings { get; private set; } = new();
     public PaletteState Palette { get; } = new();
@@ -71,6 +75,17 @@ public sealed class AppCore
     public List<FallbackSpec> Fallbacks { get; private set; } = [];
     public string LastSelection { get; private set; } = "";
     public AiConfig Ai { get; private set; } = new();
+    public bool UpdatesBusy => _updateBusy;
+    public bool CanInstallUpdate => _pendingUpdate is not null && !_updateBusy;
+    public string UpdatesButtonLabel =>
+        _updateInstalling ? "Downloading…"
+        : _updateBusy ? "Checking…"
+        : _pendingUpdate is not null ? "Download and restart"
+        : "Check for updates";
+    public string AboutUpdateCopy =>
+        string.IsNullOrWhiteSpace(_updateStatus)
+            ? GitHubAuth.StatusLine
+            : GitHubAuth.StatusLine + "\n" + _updateStatus;
 
     AppCore()
     {
@@ -611,7 +626,9 @@ public sealed class AppCore
             var latest = await UpdatesClient.FetchLatestAsync();
             if (latest.Version <= UpdatesClient.Installed)
                 return;
-            ShowMessage("Update available: " + latest.Name + ". Check for Updates to install.");
+            _pendingUpdate = latest;
+            _updateStatus = latest.Tag + " is ready.";
+            PublishUpdateUi();
         }
         catch (Exception ex)
         {
@@ -621,44 +638,69 @@ public sealed class AppCore
 
     public async Task CheckUpdates()
     {
+        if (_updateBusy)
+            return;
+        _updateBusy = true;
+        _updateStatus = "Checking GitHub Releases…";
+        PublishUpdateUi();
         try
         {
-            ShowMessage("Checking GitHub Releases…");
             var latest = await UpdatesClient.FetchLatestAsync();
             if (latest.Version <= UpdatesClient.Installed)
             {
-                ShowMessage("You’re on " + UpdatesClient.InstalledLabel + ". Latest is " + latest.Tag + ".");
+                _pendingUpdate = null;
+                _updateStatus = "You’re on " + UpdatesClient.InstalledLabel + ". Latest is " + latest.Tag + ".";
                 return;
             }
 
-#if DEBUG
-            ShowMessage("Update available: " + latest.Tag + ". Dev builds do not install GitHub updates. Installed " + UpdatesClient.InstalledLabel + ".");
+            _pendingUpdate = latest;
+            _updateStatus = latest.Tag + " is ready.";
+        }
+        catch (Exception ex)
+        {
+            _updateStatus = "Update failed: " + ex.Message;
+        }
+        finally
+        {
+            _updateBusy = false;
+            PublishUpdateUi();
+        }
+    }
+
+    public async Task InstallPendingUpdate()
+    {
+        if (_pendingUpdate is null || _updateBusy)
             return;
-#endif
 
-            var notes = string.IsNullOrWhiteSpace(latest.Notes) ? latest.Name : latest.Notes;
-            if (notes.Length > 600)
-                notes = notes[..600] + "…";
-            var choice = await Confirm(new DialogRequest(
-                "Install " + latest.Name + "?",
-                "\uE895",
-                [new DialogAction("Later", DialogActionRole.Cancel), new DialogAction("Download and restart")],
-                1, 0,
-                "Installed " + UpdatesClient.InstalledLabel + ".\n\n" + notes));
-            if (choice != 1)
-                return;
-
-            ShowMessage("Downloading " + latest.AssetName + "…");
+#if DEBUG
+        _updateStatus = "Update available: " + _pendingUpdate.Tag + ". Dev builds do not install GitHub updates.";
+        PublishUpdateUi();
+#else
+        var latest = _pendingUpdate;
+        _updateBusy = true;
+        _updateInstalling = true;
+        _updateStatus = "Downloading " + latest.AssetName + "…";
+        PublishUpdateUi();
+        try
+        {
             var payload = await UpdatesClient.DownloadAsync(latest);
             UpdatesClient.LaunchInstaller(payload);
-            ShowMessage("Restarting into " + latest.Tag + "…");
+            _updateStatus = "Restarting into " + latest.Tag + "…";
+            PublishUpdateUi();
             Quit();
         }
         catch (Exception ex)
         {
-            ShowMessage("Update failed: " + ex.Message, DialogTone.Danger);
+            _updateBusy = false;
+            _updateInstalling = false;
+            _updateStatus = "Update failed: " + ex.Message;
+            PublishUpdateUi();
         }
+#endif
     }
+
+    void PublishUpdateUi() =>
+        PaletteWindow?.DispatcherQueue.TryEnqueue(() => SettingsCoordinator.RefreshAbout());
 
     public async Task SendChat(string prompt)
     {

@@ -78,11 +78,7 @@ public sealed partial class SettingsWindow : Window
         _panes[tab].Visibility = Visibility.Visible;
         RebuildSidebar();
         if (tab == SettingsTab.About)
-        {
-            AboutIdentity.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel + "  ·  " + UpdatesClient.Repository;
-            AboutMcp.Text = _core.McpStatus();
-            AboutUpdateStatus.Text = GitHubAuth.StatusLine;
-        }
+            RefreshAboutUpdates();
 
         if (tab == SettingsTab.Applications)
             BindApplications();
@@ -189,9 +185,16 @@ public sealed partial class SettingsWindow : Window
         BindCustomCommands();
         BindQuicklinks();
         RefreshHotKeys();
+        RefreshAboutUpdates();
+    }
+
+    public void RefreshAboutUpdates()
+    {
         AboutIdentity.Text = AppPaths.ChannelId + "  ·  " + UpdatesClient.InstalledLabel + "  ·  " + UpdatesClient.Repository;
         AboutMcp.Text = _core.McpStatus();
-        AboutUpdateStatus.Text = GitHubAuth.StatusLine;
+        AboutUpdateStatus.Text = _core.AboutUpdateCopy;
+        UpdatesButton.Content = _core.UpdatesButtonLabel;
+        UpdatesButton.IsEnabled = !_core.UpdatesBusy;
     }
 
     static readonly string[] BindableCommands =
@@ -725,7 +728,13 @@ public sealed partial class SettingsWindow : Window
     void OnOpenNotes(object sender, RoutedEventArgs e) => _core.ShowNotes();
     void OnExportBackup(object sender, RoutedEventArgs e) => _core.ExportBackup();
     void OnImportBackup(object sender, RoutedEventArgs e) => _core.ImportBackup();
-    void OnCheckUpdates(object sender, RoutedEventArgs e) => _ = _core.CheckUpdates();
+    void OnUpdatesButton(object sender, RoutedEventArgs e)
+    {
+        if (_core.CanInstallUpdate)
+            _ = _core.InstallPendingUpdate();
+        else
+            _ = _core.CheckUpdates();
+    }
     void OnOpenSupport(object sender, RoutedEventArgs e) => _core.ShowSupport();
     void OnReplayOnboarding(object sender, RoutedEventArgs e) => _core.ShowOnboarding(force: true);
 }

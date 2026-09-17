@@ -32,4 +32,6 @@ public sealed class SettingsCoordinator
         if (_window is not null)
             _core.ApplyAppearance(_window);
     }
+
+    public void RefreshAbout() => _window?.RefreshAboutUpdates();
 }

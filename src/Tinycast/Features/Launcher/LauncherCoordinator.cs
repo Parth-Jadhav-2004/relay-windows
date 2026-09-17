@@ -690,6 +690,7 @@ public sealed class LauncherCoordinator
                 break;
             case BuiltinCommands.Updates:
                 _core.PaletteCoordinator.HidePalette();
+                _core.SettingsCoordinator.Show(Tinycast.Features.Settings.SettingsTab.About);
                 _ = _core.CheckUpdates();
                 break;
             case BuiltinCommands.Camera:

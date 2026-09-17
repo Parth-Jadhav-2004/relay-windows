@@ -21,7 +21,8 @@ Isolated settings live in `%APPDATA%\Tinycast\com.tinycast.windows.dev\` for Deb
 
 Release builds check [GitHub Releases](https://github.com/Parth-Jadhav-2004/tinycast-windows/releases)
 for `Tinycast-windows-x64.zip` about 30 seconds after launch, and whenever you click
-**Check for updates** in Settings → About (or the palette command).
+**Check for updates** in Settings → About (or the palette command). That button becomes
+**Download and restart** when a newer tag is ready — there is no extra confirm window.
 
 The repo is private, so the GitHub API needs a token with `repo` scope. Put it in
 `TINYCAST_GITHUB_TOKEN` or in `%APPDATA%\Tinycast\com.tinycast.windows\.env`:

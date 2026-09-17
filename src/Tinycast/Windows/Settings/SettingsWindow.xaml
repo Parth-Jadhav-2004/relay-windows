@@ -280,7 +280,7 @@
                     <TextBlock x:Name="AboutMcp" TextWrapping="Wrap" />
                     <TextBlock x:Name="AboutUpdateStatus" TextWrapping="Wrap" Opacity="0.7" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Click="OnCheckUpdates" Content="Check for updates" />
+                        <Button x:Name="UpdatesButton" Click="OnUpdatesButton" Content="Check for updates" />
                         <Button Click="OnOpenSupport" Content="Support" />
                         <Button Click="OnReplayOnboarding" Content="Welcome" />
                     </StackPanel>
