@@ -14,7 +14,7 @@ BundleArtifacts/
 *.msix
 *.msixupload
 publish/
-Tinycast-windows-*.zip
+Relay-windows-*.zip
 .idea/
 _ReSharper*/
 Generated\ Files/

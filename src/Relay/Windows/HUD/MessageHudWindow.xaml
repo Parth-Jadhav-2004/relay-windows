@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Relay.MessageHudWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Window.SystemBackdrop>
+        <DesktopAcrylicBackdrop />
+    </Window.SystemBackdrop>
+    <Grid x:Name="Root" MaxWidth="420">
+        <Border x:Name="Scrim" CornerRadius="18" />
+        <StackPanel
+            Padding="14,10"
+            Orientation="Horizontal"
+            Spacing="10">
+            <FontIcon x:Name="Glyph" FontSize="16" />
+            <TextBlock
+                x:Name="MessageBlock"
+                VerticalAlignment="Center"
+                FontSize="14"
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Window>

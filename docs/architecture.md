@@ -7,9 +7,9 @@ This file records only the Windows composition. Do not fork policy here.
 
 Same four layers as macOS:
 
-1. **Pure** — `src/Tinycast.Core`. Foundation / BCL only. The harness compiles this project, so WinUI
+1. **Pure** — `src/Relay.Core`. Foundation / BCL only. The harness compiles this project, so WinUI
    or P/Invoke in Core is a broken build, not a convention.
-2. **Effect** — `src/Tinycast/Platform` and `Features/*/Service`. Win32, WinRT, filesystem, HTTP.
+2. **Effect** — `src/Relay/Platform` and `Features/*/Service`. Win32, WinRT, filesystem, HTTP.
 3. **Observable state** — stores and `PaletteState` owned by `AppCore`.
 4. **View** — WinUI windows. Coordinators are the only mutation surface a view calls.
 
@@ -20,8 +20,8 @@ Same four layers as macOS:
 `AppCore` owns settings, `PaletteState`, the palette window (HWND host for tray + hotkeys),
 coordinators, `DialogPresenter`, and `MessageHudPresenter`. Do not add a second singleton.
 
-Dev identity is `com.tinycast.windows.dev`; Release is `com.tinycast.windows`. Settings roots are
-`%APPDATA%\Tinycast\<identity>\`.
+Dev identity is `com.relay.windows.dev`; Release is `com.relay.windows`. Settings roots are
+`%APPDATA%\Relay\<identity>\`.
 
 ## Windows mapping
 

@@ -1,7 +1,7 @@
 # UI & Design System (Windows)
 
 macOS source of truth: [`reference/docs/ui.md`](../reference/docs/ui.md) and
-`Tinycast.Core/DesignSystem/Theme.cs`. Dark is the design. Light inverts the ink.
+`Relay.Core/DesignSystem/Theme.cs`. Dark is the design. Light inverts the ink.
 
 ## Surface
 

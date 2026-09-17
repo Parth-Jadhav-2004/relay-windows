@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Relay.SupportWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Support Relay">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+    <StackPanel Padding="28" Spacing="12" Width="480">
+        <TextBlock FontSize="22" FontWeight="SemiBold" Text="Support Relay" />
+        <TextBlock x:Name="IdentityBlock" TextWrapping="Wrap" />
+        <TextBlock
+            Opacity="0.75"
+            Text="Relay is AGPL-3.0. The Windows port is a from-scratch native rewrite."
+            TextWrapping="Wrap" />
+        <TextBlock
+            Opacity="0.75"
+            Text="If this launcher is useful, star the upstream project or contribute a Windows fix."
+            TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Click="OnGithub" Content="Open GitHub" />
+            <Button Click="OnLicense" Content="License" />
+            <Button Click="OnLater" Content="Remind me later" />
+        </StackPanel>
+    </StackPanel>
+</Window>

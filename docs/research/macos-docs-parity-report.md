@@ -1,9 +1,9 @@
-# Tinycast macOS docs vs Windows — parity report
+# Relay macOS docs vs Windows — parity report
 
 Sources (2026-09-17):
 
-- Public docs: [https://abue-ammar.github.io/tinycast/docs/](https://abue-ammar.github.io/tinycast/docs/) (every sidebar page)
-- GitHub: [abue-ammar/tinycast](https://github.com/abue-ammar/tinycast) Settings UI (`Tinycast/Features/Settings/`)
+- Public docs: [https://abue-ammar.github.io/relay/docs/](https://abue-ammar.github.io/relay/docs/) (every sidebar page)
+- GitHub: [abue-ammar/relay](https://github.com/abue-ammar/relay) Settings UI (`Relay/Features/Settings/`)
 - Local `reference/` clone of that repo, and the current Windows tree under `src/`
 
 macOS-only surfaces (Apple Shortcuts, Caps Lock Hyper, Stage Manager) are marked **Drop**. Everything else is a real product gap or a thinner Adapt.
@@ -32,14 +32,14 @@ So the extra window is not a bug. The gap is that macOS Settings is a **System S
 
 **Improve:** keep the separate window. Rebuild it as a split view: grouped sidebar, one pane per feature, search catalog, `Show(tab)` from the palette. Do not put Settings inside the palette.
 
-Public spec: [Settings](https://abue-ammar.github.io/tinycast/docs/reference/settings/). Repo: `SettingsCoordinator.swift`, `SettingsSplitViewController.swift`, `SettingsTab.swift`.
+Public spec: [Settings](https://abue-ammar.github.io/relay/docs/reference/settings/). Repo: `SettingsCoordinator.swift`, `SettingsSplitViewController.swift`, `SettingsTab.swift`.
 
 ---
 
 ## Getting started / install / permissions / palette
 
 ### Getting started
-[https://abue-ammar.github.io/tinycast/docs/](https://abue-ammar.github.io/tinycast/docs/)
+[https://abue-ammar.github.io/relay/docs/](https://abue-ammar.github.io/relay/docs/)
 
 macOS: skippable welcome — bind a launcher shortcut (none ships bound), launch at login, Accessibility, optional Raycast import. Most features **off**; clipboard **on**. ⌘K is how you learn actions.
 
@@ -48,16 +48,16 @@ Windows: **no onboarding**. Alt+Space is always bound. Many features default **o
 **Missing:** first-run wizard, unbound-until-chosen launcher chord, re-run from About. **Improve:** ship features off except clipboard; teach Ctrl+K with real per-row actions.
 
 ### Install
-[https://abue-ammar.github.io/tinycast/docs/install/](https://abue-ammar.github.io/tinycast/docs/install/)
+[https://abue-ammar.github.io/relay/docs/install/](https://abue-ammar.github.io/relay/docs/install/)
 
 macOS: Homebrew tap, Stable vs Beta as **separate apps** with isolated settings, self-update, self-signed + `xattr` once.
 
-Windows: unpackaged `%LOCALAPPDATA%\Programs\Tinycast`, GitHub zip, `com.tinycast.windows` vs `.dev`. No installer, no WinGet/store, no beta channel app.
+Windows: unpackaged `%LOCALAPPDATA%\Programs\Relay`, GitHub zip, `com.relay.windows` vs `.dev`. No installer, no WinGet/store, no beta channel app.
 
 **Missing:** packaged install, channel apps side by side for users (we only isolate Debug vs Release).
 
 ### Permissions
-[https://abue-ammar.github.io/tinycast/docs/permissions/](https://abue-ammar.github.io/tinycast/docs/permissions/)
+[https://abue-ammar.github.io/relay/docs/permissions/](https://abue-ammar.github.io/relay/docs/permissions/)
 
 macOS: asked only when a feature needs them. Settings → Permissions shows Accessibility + Calendars with deep links.
 
@@ -66,7 +66,7 @@ Windows: one “Request calendar access” button. Camera/TCC happens on first p
 **Improve:** status list (Calendar, Camera, Notifications if we ever need them) and “Open Windows Settings” links. Do not dump API names into the pane.
 
 ### The palette
-[https://abue-ammar.github.io/tinycast/docs/palette/](https://abue-ammar.github.io/tinycast/docs/palette/)
+[https://abue-ammar.github.io/relay/docs/palette/](https://abue-ammar.github.io/relay/docs/palette/)
 
 macOS: one floating panel; features are launcher or stacked screens. Esc walks back. Tab = launcher → AI → clipboard. Compact mode, follow cursor, drag to reposition, pop-to-root timeout, Escape policy, interface size, input-source switch, ⌘Escape to root.
 
@@ -77,7 +77,7 @@ Windows: real palette (acrylic, tab ring, stack, file-search drill-down). **Miss
 ## Launcher
 
 ### App launcher
-[https://abue-ammar.github.io/tinycast/docs/launcher/](https://abue-ammar.github.io/tinycast/docs/launcher/)
+[https://abue-ammar.github.io/relay/docs/launcher/](https://abue-ammar.github.io/relay/docs/launcher/)
 
 **They have:** apps + System Settings panes + commands + quicklinks + snippets + system actions + window commands/layouts + custom commands + Quick Actions + extensions + meetings. Empty query is sectioned. Typed query is one ranked list plus calculator/color/Open in Browser cards and fallbacks. Exact name/alias always wins. Learned ranking. App actions: Open, Show in Finder, favorite, hide, restart, quit, uninstall. Per-app global shortcut. Search scopes.
 
@@ -86,35 +86,35 @@ Windows: real palette (acrylic, tab ring, stack, file-search drill-down). **Miss
 **Missing / thin:** Open in Browser for typed URLs, fallbacks, per-app hotkey, running-app indicator, Show in Explorer / Restart / Quit / Uninstall on the app row (Ctrl+K), Applications pane + search scopes, empty-query section order (Meetings, Extensions, …).
 
 ### Favorites
-[https://abue-ammar.github.io/tinycast/docs/launcher/favorites/](https://abue-ammar.github.io/tinycast/docs/launcher/favorites/)
+[https://abue-ammar.github.io/relay/docs/launcher/favorites/](https://abue-ammar.github.io/relay/docs/launcher/favorites/)
 
 macOS: ⇧⌘F, ⌥⌘↑/↓ reorder, ⌘1–9/0, compact icons.
 
 Windows: Ctrl+F pin, empty-query section. **Missing:** reorder, number-key launch, compact strip.
 
 ### Aliases
-[https://abue-ammar.github.io/tinycast/docs/launcher/aliases/](https://abue-ammar.github.io/tinycast/docs/launcher/aliases/)
+[https://abue-ammar.github.io/relay/docs/launcher/aliases/](https://abue-ammar.github.io/relay/docs/launcher/aliases/)
 
 macOS: per-item field in Settings, tag in the list, Raycast import.
 
 Windows: type an item id by hand on the Features pane. **Missing:** in-pane alias field on each row; Settings search for the item.
 
 ### Fallbacks
-[https://abue-ammar.github.io/tinycast/docs/launcher/fallbacks/](https://abue-ammar.github.io/tinycast/docs/launcher/fallbacks/)
+[https://abue-ammar.github.io/relay/docs/launcher/fallbacks/](https://abue-ammar.github.io/relay/docs/launcher/fallbacks/)
 
 macOS: “Use … with” under every search (AI, Search Files, Run Shell, argument quicklinks). Order **not** backed up.
 
 Windows: **absent.** High-value add.
 
 ### System Settings (OS panes)
-[https://abue-ammar.github.io/tinycast/docs/launcher/system-settings/](https://abue-ammar.github.io/tinycast/docs/launcher/system-settings/)
+[https://abue-ammar.github.io/relay/docs/launcher/system-settings/](https://abue-ammar.github.io/relay/docs/launcher/system-settings/)
 
 macOS: every System Settings pane, localized, hide/alias/shortcut.
 
 Windows: 30 hardcoded `ms-settings:` URIs. **Improve:** fuller catalog + hide/alias per pane.
 
 ### System actions
-[https://abue-ammar.github.io/tinycast/docs/launcher/system-actions/](https://abue-ammar.github.io/tinycast/docs/launcher/system-actions/)
+[https://abue-ammar.github.io/relay/docs/launcher/system-actions/](https://abue-ammar.github.io/relay/docs/launcher/system-actions/)
 
 macOS: **31** actions (docs sometimes say 31; older catalog said 32). Groups: session, media, volume (including Set Volume… slider), desktop, files, Bluetooth.
 
@@ -123,7 +123,7 @@ Windows: **30** (Stage Manager **Drop**). Real lock/sleep/restart/media/volume k
 **Improve:** volume picker dialog, actual Bluetooth radio toggle if we can do it without hacks, hide/alias/shortcut per action in a System Actions pane.
 
 ### Commands (built-in + custom)
-[https://abue-ammar.github.io/tinycast/docs/launcher/commands/](https://abue-ammar.github.io/tinycast/docs/launcher/commands/)
+[https://abue-ammar.github.io/relay/docs/launcher/commands/](https://abue-ammar.github.io/relay/docs/launcher/commands/)
 
 macOS: built-ins live on the **feature’s** Settings pane. Custom: zsh, `$1` args, confirmation, output window, env load, Raycast script import.
 
@@ -132,7 +132,7 @@ Windows: `BuiltinCommands` (~19). Custom = name + exe path, confirm, no args UI,
 **Missing:** Commands pane, argument prompts, ConPTY output, Run Shell Command fallback, Raycast scripts.
 
 ### Quicklinks
-[https://abue-ammar.github.io/tinycast/docs/launcher/quicklinks/](https://abue-ammar.github.io/tinycast/docs/launcher/quicklinks/)
+[https://abue-ammar.github.io/relay/docs/launcher/quicklinks/](https://abue-ammar.github.io/relay/docs/launcher/quicklinks/)
 
 macOS: off by default; `{argument}` `{selection}` `{clipboard}` `{date}`…; two-pane search; JSON import/export; Open in new window; confirm delete.
 
@@ -141,9 +141,9 @@ Windows: JSON, `{argument}`/`{query}` only, add-from-Features, seed User folder.
 **Missing:** placeholder chips, selection/clipboard tokens, import/export, dedicated pane, off-by-default.
 
 ### Uninstall an app
-[https://abue-ammar.github.io/tinycast/docs/launcher/uninstall/](https://abue-ammar.github.io/tinycast/docs/launcher/uninstall/)
+[https://abue-ammar.github.io/relay/docs/launcher/uninstall/](https://abue-ammar.github.io/relay/docs/launcher/uninstall/)
 
-macOS: related files, everything to Trash, FDA rows locked, never deletes Tinycast.
+macOS: related files, everything to Trash, FDA rows locked, never deletes Relay.
 
 Windows: type 3+ letters, scan AppData folder names, Recycle. **Missing:** installer leftovers, registry QuietUninstall, Start Menu, package family, size list, checkboxes.
 
@@ -155,7 +155,7 @@ In the macOS app Settings (Launcher group). Not on the public sidebar. No Window
 ## Features
 
 ### Clipboard
-[https://abue-ammar.github.io/tinycast/docs/features/clipboard/](https://abue-ammar.github.io/tinycast/docs/features/clipboard/)
+[https://abue-ammar.github.io/relay/docs/features/clipboard/](https://abue-ammar.github.io/relay/docs/features/clipboard/)
 
 macOS: on by default. Text/images/files/colors. Pin, type filter ⌘P, OCR **opt-in**, retention, ignored apps (Keychain/Passwords), paste vs copy, keep-open.
 
@@ -164,14 +164,14 @@ Windows: SQLite + FTS, images, files, OCR **always on**, pin, preview pane. Sear
 **Missing:** type filters, colors, ignored apps, OCR switch, retention, default-action, keep-open paste, pin number keys.
 
 ### Calculator
-[https://abue-ammar.github.io/tinycast/docs/features/calculator/](https://abue-ammar.github.io/tinycast/docs/features/calculator/)
+[https://abue-ammar.github.io/relay/docs/features/calculator/](https://abue-ammar.github.io/relay/docs/features/calculator/)
 
 macOS: always on. Units, 159 currencies + crypto (24h), dates/TZ, hex, **color card**, history screen.
 
 Windows: real Core engine (units, TZ, currency, percent, compact k, history). FX 6h, **no crypto**, **no color card**. Strong feature; polish the card chrome and add `#rgb` / color copy.
 
 ### Snippets
-[https://abue-ammar.github.io/tinycast/docs/features/snippets/](https://abue-ammar.github.io/tinycast/docs/features/snippets/)
+[https://abue-ammar.github.io/relay/docs/features/snippets/](https://abue-ammar.github.io/relay/docs/features/snippets/)
 
 macOS: off; `.md` + frontmatter; keyword expansion = consent; full Raycast placeholders; argument UI; conflict editor; folder on disk.
 
@@ -180,35 +180,35 @@ Windows: JSON; keyword hook when enabled; subset of tokens; missing argument →
 **Missing:** `.md` files, editor, argument form, modifiers, `{date format=}`, Show in launcher, dedicated pane.
 
 ### Notes
-[https://abue-ammar.github.io/tinycast/docs/features/notes/](https://abue-ammar.github.io/tinycast/docs/features/notes/)
+[https://abue-ammar.github.io/relay/docs/features/notes/](https://abue-ammar.github.io/relay/docs/features/notes/)
 
 macOS: off; separate floating window; `.md`; Search Notes; Create Note; snippets inside the editor.
 
 Windows: floating `NotesWindow`, autosave, New/Delete. Defaults **on**. **Missing:** Search Notes command, folder reveal, off-by-default.
 
 ### File search
-[https://abue-ammar.github.io/tinycast/docs/features/file-search/](https://abue-ammar.github.io/tinycast/docs/features/file-search/)
+[https://abue-ammar.github.io/relay/docs/features/file-search/](https://abue-ammar.github.io/relay/docs/features/file-search/)
 
 macOS: Spotlight, no extra permission, recents, type filter, Quick Look, copy path/name, Trash.
 
 Windows: disk walk + volume drill-down (`D` → `D:` → folders). Filters, Recycle. **Missing:** Windows Search / Everything indexer, preview pane, paste-file-into-previous-app. Volume browse is a Windows-native extra worth keeping.
 
 ### Calendar & meetings
-[https://abue-ammar.github.io/tinycast/docs/features/calendar/](https://abue-ammar.github.io/tinycast/docs/features/calendar/)
+[https://abue-ammar.github.io/relay/docs/features/calendar/](https://abue-ammar.github.io/relay/docs/features/calendar/)
 
 macOS: join card on empty launcher, Join Next, schedule, create event, copy link, optional menu-bar item, auto-join, camera preview. Consent flags never backed up.
 
 Windows: `AppointmentManager` 7-day list, Schedule mode, auto-join if both flags on. **Missing:** empty-launcher join card, Join Next / Create Event / Copy link / Open in Calendar, tray title, per-calendar exclude.
 
 ### Camera
-[https://abue-ammar.github.io/tinycast/docs/features/camera/](https://abue-ammar.github.io/tinycast/docs/features/camera/)
+[https://abue-ammar.github.io/relay/docs/features/camera/](https://abue-ammar.github.io/relay/docs/features/camera/)
 
 macOS: no feature switch. Borderless panel; photo → clipboard PNG; mirror; switch camera; click-outside closes.
 
 Windows: gated on `CameraPreview`; preview or “open Camera app”. **Missing:** snapshot to clipboard, cycle devices, mirror, click-outside dismiss.
 
 ### Navigation
-[https://abue-ammar.github.io/tinycast/docs/features/navigation/](https://abue-ammar.github.io/tinycast/docs/features/navigation/)
+[https://abue-ammar.github.io/relay/docs/features/navigation/](https://abue-ammar.github.io/relay/docs/features/navigation/)
 
 macOS: Switch Windows (all Spaces, restore minimized) + Search Menu Bar (front app, 4000 items, exclude apps).
 
@@ -217,7 +217,7 @@ Windows: window list + focus. Menu search = classic `GetMenu` only (“No classi
 **Missing:** UI Automation menu walk, exclude-app list, virtual-desktop-aware switcher.
 
 ### Window management
-[https://abue-ammar.github.io/tinycast/docs/features/window-management/](https://abue-ammar.github.io/tinycast/docs/features/window-management/)
+[https://abue-ammar.github.io/relay/docs/features/window-management/](https://abue-ammar.github.io/relay/docs/features/window-management/)
 
 macOS: **35** commands, gap 0–64, cycling ½-⅓-⅔ or displays, custom sizes, restore memory.
 
@@ -226,14 +226,14 @@ Windows: **35** IDs, engine is real. Fullscreen = F11; spaces = Win+Ctrl arrows.
 **Improve:** Settings pane (gap, cycle, show in launcher, per-command shortcut). Real fullscreen. Display cycle UI.
 
 ### Window layouts
-[https://abue-ammar.github.io/tinycast/docs/features/window-layouts/](https://abue-ammar.github.io/tinycast/docs/features/window-layouts/)
+[https://abue-ammar.github.io/relay/docs/features/window-layouts/](https://abue-ammar.github.io/relay/docs/features/window-layouts/)
 
 macOS: visual editor (per-display, 3×3, launch missing apps).
 
 Windows: save process+frame; restore first window of that process. **Missing:** editor, monitor identity, launch missing apps.
 
 ### Emoji & symbols
-[https://abue-ammar.github.io/tinycast/docs/features/emoji/](https://abue-ammar.github.io/tinycast/docs/features/emoji/)
+[https://abue-ammar.github.io/relay/docs/features/emoji/](https://abue-ammar.github.io/relay/docs/features/emoji/)
 
 macOS: always on; generated Emoji-16 grid; pins; frequent; skin; 6–10 columns.
 
@@ -246,7 +246,7 @@ Windows: **50** hardcoded glyphs in a **list**. Stub.
 ## AI
 
 ### AI Chat
-[https://abue-ammar.github.io/tinycast/docs/ai/](https://abue-ammar.github.io/tinycast/docs/ai/)
+[https://abue-ammar.github.io/relay/docs/ai/](https://abue-ammar.github.io/relay/docs/ai/)
 
 macOS: Apple Intelligence, CLI (Codex/Claude/OpenCode), BYO keys, attachments, web search, history DB, idle timeout. **No AI setting in backups.**
 
@@ -255,7 +255,7 @@ Windows: OpenCode spawn + HTTPS key fallback. Palette chat. JSON history.
 **Missing:** attachments, streaming that survives hide, model picker, web search, Apple Intelligence analog (Windows Copilot Runtime — optional later), conversation list.
 
 ### Quick Actions
-[https://abue-ammar.github.io/tinycast/docs/ai/quick-actions/](https://abue-ammar.github.io/tinycast/docs/ai/quick-actions/)
+[https://abue-ammar.github.io/relay/docs/ai/quick-actions/](https://abue-ammar.github.io/relay/docs/ai/quick-actions/)
 
 macOS: Fix Grammar, Rewrite, Translate (on-device), Summarize, custom; result overlay. Nothing backed up.
 
@@ -264,7 +264,7 @@ Windows: flag stores clipboard text as “Selected text” and **copies** it. JS
 **Missing:** the whole feature. Highest-impact AI add after chat polish.
 
 ### MCP
-[https://abue-ammar.github.io/tinycast/docs/ai/mcp/](https://abue-ammar.github.io/tinycast/docs/ai/mcp/)
+[https://abue-ammar.github.io/relay/docs/ai/mcp/](https://abue-ammar.github.io/relay/docs/ai/mcp/)
 
 macOS: HTTP or local command, trust levels, `@handle`, idle-stop. Switch + list never backed up.
 
@@ -273,7 +273,7 @@ Windows: `McpServerSpec` JSON + status string. **No client, no editor.** Stub.
 ---
 
 ## Extensions
-[https://abue-ammar.github.io/tinycast/docs/extensions/](https://abue-ammar.github.io/tinycast/docs/extensions/)  
+[https://abue-ammar.github.io/relay/docs/extensions/](https://abue-ammar.github.io/relay/docs/extensions/)  
 Install / compatibility / configuring are sibling pages.
 
 macOS: Raycast extensions in the **palette** via JavaScriptCore (not Electron). Registries, import from Raycast, configure, aliases, shortcuts.
@@ -285,14 +285,14 @@ Windows: toggle + “deferred”. **Not started.** Large, later.
 ## Reference
 
 ### Shortcuts
-[https://abue-ammar.github.io/tinycast/docs/reference/shortcuts/](https://abue-ammar.github.io/tinycast/docs/reference/shortcuts/)
+[https://abue-ammar.github.io/relay/docs/reference/shortcuts/](https://abue-ammar.github.io/relay/docs/reference/shortcuts/)
 
 macOS: large table of unchangeable, key-position shortcuts per screen.
 
 Windows: a few (Tab, Esc, Ctrl+K, Ctrl+F, Ctrl+P, Ctrl+Enter). **Missing:** documented, consistent chord set; Emacs-style Ctrl+N/P; number keys.
 
 ### Hotkeys
-[https://abue-ammar.github.io/tinycast/docs/reference/hotkeys/](https://abue-ammar.github.io/tinycast/docs/reference/hotkeys/)
+[https://abue-ammar.github.io/relay/docs/reference/hotkeys/](https://abue-ammar.github.io/relay/docs/reference/hotkeys/)
 
 macOS: nothing ships bound; recorder + conflict bubble; double-tap modifiers; Hyper via Caps Lock / right modifiers (`hidutil`). Feature Enable kills that feature’s shortcuts.
 
@@ -301,19 +301,19 @@ Windows: Alt+Space always; extra `RegisterHotKey`; double-tap + Hyper chord via 
 **Missing:** recorder on every command/app/action row; conflict UI; window-command / system-action / layout / quicklink bindings.
 
 ### Backup
-[https://abue-ammar.github.io/tinycast/docs/reference/backup/](https://abue-ammar.github.io/tinycast/docs/reference/backup/)
+[https://abue-ammar.github.io/relay/docs/reference/backup/](https://abue-ammar.github.io/relay/docs/reference/backup/)
 
-macOS: `.tinycast`; **category checkboxes**; same-version; capability flags excluded.
+macOS: `.relay`; **category checkboxes**; same-version; capability flags excluded.
 
 Windows: zip export/import; always all mirrored keys; flags excluded (correct). **Missing:** ticks, version guard messaging.
 
 ### Import from Raycast
-[https://abue-ammar.github.io/tinycast/docs/reference/import-from-raycast/](https://abue-ammar.github.io/tinycast/docs/reference/import-from-raycast/)
+[https://abue-ammar.github.io/relay/docs/reference/import-from-raycast/](https://abue-ammar.github.io/relay/docs/reference/import-from-raycast/)
 
 Windows: **absent.**
 
 ### Updates
-[https://abue-ammar.github.io/tinycast/docs/reference/updates/](https://abue-ammar.github.io/tinycast/docs/reference/updates/)
+[https://abue-ammar.github.io/relay/docs/reference/updates/](https://abue-ammar.github.io/relay/docs/reference/updates/)
 
 macOS: daily check (30s then 2h), changelog window, signature, never interrupt palette/dialog.
 
@@ -338,7 +338,7 @@ These read as engineering notes, not System Settings chrome:
 - File search DerivedData/Pods (macOS leftovers)
 - Hotkeys HWND / keyboard-hook paragraph
 - Backup capability-flag essay
-- About `.env` / `TINYCAST_GITHUB_TOKEN` instructions (status line already reports token state)
+- About `.env` / `RELAY_GITHUB_TOKEN` instructions (status line already reports token state)
 
 Kept: control labels, placeholders, dynamic status (`AboutIdentity`, `AboutUpdateStatus`, `HotKeyStatus`, `OpenCodeStatus`).
 

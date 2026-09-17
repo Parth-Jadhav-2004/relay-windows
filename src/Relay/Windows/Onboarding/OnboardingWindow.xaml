@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Relay.OnboardingWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Welcome">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+    <StackPanel Padding="28,24" Spacing="16" Width="440">
+        <TextBlock x:Name="TitleBlock" FontSize="22" FontWeight="SemiBold" Text="Relay" />
+        <TextBlock x:Name="BodyBlock" TextWrapping="Wrap" Opacity="0.8" Text="Pick a shortcut, then Relay stays in the tray." />
+        <ToggleSwitch x:Name="LoginSwitch" Header="Launch at login" OffContent="" OnContent="" />
+        <TextBlock x:Name="ChordStatus" Opacity="0.7" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Click="OnRecord" Content="Record shortcut" />
+            <Button Click="OnSkip" Content="Skip" />
+            <Button Click="OnContinue" Content="Continue" />
+        </StackPanel>
+    </StackPanel>
+</Window>

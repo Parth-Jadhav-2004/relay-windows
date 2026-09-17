@@ -1,8 +1,8 @@
-Tinycast for Windows
-Copyright (C) 2026 Tinycast Windows contributors
+Relay for Windows
+Copyright (C) 2026 Relay Windows contributors
 
-This program is a from-scratch native Windows reimplementation of Tinycast
-for macOS (https://github.com/abue-ammar/tinycast), Copyright (C) 2026 Abue Ammar.
+This program is a from-scratch native Windows reimplementation of the original
+macOS launcher, Copyright (C) 2026 Abue Ammar.
 
 Both are licensed under the GNU Affero General Public License, version 3.
 

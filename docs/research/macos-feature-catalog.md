@@ -1,8 +1,8 @@
-# Tinycast macOS feature catalog — Windows port parity
+# Relay macOS feature catalog — Windows port parity
 
-Source: [abue-ammar/tinycast](https://github.com/abue-ammar/tinycast) `main`, fetched 2026-09-16 from GitHub raw + Contents API.
+Source: [abue-ammar/relay](https://github.com/abue-ammar/relay) `main`, fetched 2026-09-16 from GitHub raw + Contents API.
 
-This is a planning catalog for a 1:1 native Windows port. Every feature with a `docs/features/*.md` page or a `Tinycast/Features/` folder is covered, including ones the README omits (camera, MCP, menu search, window layouts, updates, uninstall, support, onboarding, text injection).
+This is a planning catalog for a 1:1 native Windows port. Every feature with a `docs/features/*.md` page or a `Relay/Features/` folder is covered, including ones the README omits (camera, MCP, menu search, window layouts, updates, uninstall, support, onboarding, text injection).
 
 **README drift:** the public README lists **34** Rectangle-style window actions. Shipped code (`WindowCommand.ID.allCases`) and `docs/features/window-management.md` both say **35**. This catalog uses 35.
 
@@ -16,9 +16,9 @@ This is a planning catalog for a 1:1 native Windows port. Every feature with a `
 
 `ai.md` · `apple-shortcuts.md` · `backup.md` · `calculator.md` · `calendar.md` · `camera.md` · `clipboard.md` · `custom-commands.md` · `emoji.md` · `extensions.md` · `file-search.md` · `hotkeys.md` · `launcher.md` · `mcp.md` · `menu-search.md` · `navigation.md` · `notes.md` · `palette.md` · `quick-actions.md` · `quicklinks.md` · `raycast-import.md` · `snippets.md` · `support.md` · `uninstall.md` · `updates.md` · `window-layouts.md` · `window-management.md`
 
-There is **no** dedicated `system-actions.md`; the catalog lives in `Tinycast/Features/SystemActions/Model/SystemAction.swift` and is summarized in `launcher.md` § System actions.
+There is **no** dedicated `system-actions.md`; the catalog lives in `Relay/Features/SystemActions/Model/SystemAction.swift` and is summarized in `launcher.md` § System actions.
 
-### Source folders (`Tinycast/Features/`)
+### Source folders (`Relay/Features/`)
 
 | Folder | Doc |
 | --- | --- |
@@ -52,7 +52,7 @@ There is **no** dedicated `system-actions.md`; the catalog lives in `Tinycast/Fe
 | `WindowManagement` | `window-management.md`, `window-layouts.md` |
 | `WindowSwitcher` | `navigation.md` |
 
-Palette UI lives in `Tinycast/Palette/`, documented by `palette.md`.
+Palette UI lives in `Relay/Palette/`, documented by `palette.md`.
 
 ### Settings panes (`SettingsTab`)
 
@@ -101,7 +101,7 @@ From `SystemAction.ID`. Confirmation from `SystemActionCatalog.confirmation`.
 
 Confirm copy: Restart / Shut Down / Log Out share “Applications with unsaved changes may ask you to save.” Empty Trash: “The items in the Trash will be permanently deleted.” Quit All builds the count at call time.
 
-Volume HUD: Tinycast draws its own because macOS only draws one for real media keys. Windows also has no in-app volume HUD for programmatic changes — keep a custom HUD.
+Volume HUD: Relay draws its own because macOS only draws one for real media keys. Windows also has no in-app volume HUD for programmatic changes — keep a custom HUD.
 
 ## Window management actions — full list (35)
 
@@ -144,7 +144,7 @@ Cycle modes (`WindowCycle`, default `.off`): `.sizes` = ½ → ⅓ → ⅔ in pl
 | `center-two-thirds` | Center Two Thirds | two-thirds width, full height, centred |
 | `make-larger` | Make Larger | +5% of **screen**, invertible with smaller; floor `max(200×150, 15% canvas)` |
 | `make-smaller` | Make Smaller | −5% of screen |
-| `restore` | Restore Window | single-level restore of pre-Tinycast frame |
+| `restore` | Restore Window | single-level restore of pre-Relay frame |
 
 ### Moving (size untouched)
 
@@ -259,8 +259,8 @@ Each feature: name, user-facing behavior, invariants, key types/files, data stor
 ### Palette
 
 - **Behavior:** Global hotkey (default unset; onboarding records it; README example ⌥Space) summons a floating non-activating panel. Type to filter, ↑/↓, ↵ activate, Esc dismisses (first press clears query). Tab rings launcher → AI chat → clipboard → launcher (chat skipped if AI off). ⌘K actions menu. Compact vs expanded; user-owned frame. Header back chevron off root. Pop to Root after hide (`popToRootTimeout`). Screens: launcher, clipboard, calculator history, emoji, file search, schedule, uninstall, quicklinks, snippets, custom-command arguments, extension command, AI, AI history.
-- **Invariants:** `PaletteWindowController` owns the frame (SwiftUI `sizingOptions = []`). Flat `selection` == visible rows including lead cards (`PaletteRowIndex`, Foundation-only). Search field never unmounted. Focus restoration + paste target recorded as `previousApp` once per summon. Input source is a session, restored only if still the one Tinycast applied.
-- **Files:** `Tinycast/Palette/*`, `Features/PaletteRowIndex.swift`.
+- **Invariants:** `PaletteWindowController` owns the frame (SwiftUI `sizingOptions = []`). Flat `selection` == visible rows including lead cards (`PaletteRowIndex`, Foundation-only). Search field never unmounted. Focus restoration + paste target recorded as `previousApp` once per summon. Input source is a session, restored only if still the one Relay applied.
+- **Files:** `Relay/Palette/*`, `Features/PaletteRowIndex.swift`.
 - **Data:** `palettePosition` (not backed up), transparency, interface size, escape-key behavior, pop-to-root timeout.
 - **Permissions:** Accessibility for paste/focus restore.
 - **Settings:** General (hotkey, transparency −100…100 five detents, appearance, interface size, launch at login, menu bar, escape behavior, pop to root).
@@ -300,7 +300,7 @@ Each feature: name, user-facing behavior, invariants, key types/files, data stor
 - **Data:** UserDefaults `hotkey.*`; indexes `boundAppBundleIDs`, `boundPaneBundleIDs`, `boundCustomCommandIDs`, `boundQuicklinkIDs`, `boundWindowLayoutIDs`, `boundAppleShortcutIDs`, `boundQuickActionIDs`. Hyper key in `AppSettings`.
 - **Permissions:** Accessibility for Hyper (modifying tap) and double-tap (listen-only). Never prompted from the tap; recorder shows a warning.
 - **Settings:** per-row recorders; General for Hyper Key + Include Shift.
-- **Windows:** `RegisterHotKey` is combo-only and conflicts with other apps. Low-level `WH_KEYBOARD_LL` hook (or `Raw Input`) for double-tap + Hyper. Caps Lock remap: `MapVirtualKey` cannot suppress Caps at HID; need Interception driver **or** accept Toggle+chord (worse). `kioskMode` / `Scan Code Mapper` (`HKLM\SYSTEM\...\Keyboard Layout\Scancode Map`) persists across reboot — Tinycast explicitly does **not** survive reboot; Windows port should clear on exit too.
+- **Windows:** `RegisterHotKey` is combo-only and conflicts with other apps. Low-level `WH_KEYBOARD_LL` hook (or `Raw Input`) for double-tap + Hyper. Caps Lock remap: `MapVirtualKey` cannot suppress Caps at HID; need Interception driver **or** accept Toggle+chord (worse). `kioskMode` / `Scan Code Mapper` (`HKLM\SYSTEM\...\Keyboard Layout\Scancode Map`) persists across reboot — Relay explicitly does **not** survive reboot; Windows port should clear on exit too.
 - **Parity:** **Adapt** (Hyper/Caps is the highest-risk input piece). Combo hotkeys **Direct-ish**.
 - **Edges:** Caps Lock latch is below CGEventTap; remap to F18 via IOKit `UserKeyMapping`. fn bit scrubbed. Fast user switching drops half-held state. Deny-list: Open in Browser, Run Shell Command, Quit cannot bind. Window/system shortcuts still register while feature off, coordinator no-ops.
 
@@ -335,7 +335,7 @@ Each feature: name, user-facing behavior, invariants, key types/files, data stor
 ### Notes
 
 - **Behavior:** Off by default. Show Notes toggles floating editor; Create Note; Search Notes (switcher). One `.md` = one note; filename is title; unnamed `Untitled.md` shows first line. ⌘N create, ⌘P switcher, ⌘O folder, ⌘W hide. Autosave 300 ms. Empty collection allowed.
-- **Invariants:** No frontmatter/DB. Editor = disk = search string. Only active note dirty. Tinycast sole writer (no watcher). Off = no work. User owns window size.
+- **Invariants:** No frontmatter/DB. Editor = disk = search string. Only active note dirty. Relay sole writer (no watcher). Off = no work. User owns window size.
 - **Files:** `Features/Notes/` — `NotesRepository`, `NotesStore`, `NotesCoordinator`, `NoteTextView`.
 - **Data:** `~/Library/Application Support/<id>/Notes/*.md`. Active filename in UserDefaults, not backups.
 - **Permissions:** none. Snippet expansion into notes is in-process.
@@ -391,7 +391,7 @@ Each feature: name, user-facing behavior, invariants, key types/files, data stor
 - **Data:** `windowManagementEnabled` (off), `windowManagementShowInLauncher` (on), `windowGap` (0), `windowCycle` (off). Memory not persisted (LRU 64).
 - **Permissions:** Accessibility (already for paste); no extra class. Feature does not prompt; coordinator re-checks.
 - **Settings:** Window Management pane (switch, gap, cycle, per-command visibility+hotkey, layouts section).
-- **Windows:** `SetWindowPos` + `GetWindowPlacement` + `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` for shadows. Work area `SPI_GETWORKAREA` / per-monitor `rcWork` (taskbar). DPI: use **physical/px consistently**; Tinycast’s “points, ignore scale” maps to working in **screen coordinates** via `GetDpiForWindow` only if you convert — prefer screen coords end-to-end. Non-resizable: `GetWindowLong(GWL_STYLE)` lacks `WS_THICKFRAME` → fail quiet. Fullscreen: `WS_MAXIMIZE` vs borderless — pick one and document. Virtual desktops: `IVirtualDesktopManager.MoveWindowToDesktop` is per-window; switching desktop is undocumented COM (`Win11 22621+` `IVirtualDesktopManagerInternal`) — **Adapt / high risk**. Do not port Dock-swipe CGEvent splice.
+- **Windows:** `SetWindowPos` + `GetWindowPlacement` + `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` for shadows. Work area `SPI_GETWORKAREA` / per-monitor `rcWork` (taskbar). DPI: use **physical/px consistently**; Relay’s “points, ignore scale” maps to working in **screen coordinates** via `GetDpiForWindow` only if you convert — prefer screen coords end-to-end. Non-resizable: `GetWindowLong(GWL_STYLE)` lacks `WS_THICKFRAME` → fail quiet. Fullscreen: `WS_MAXIMIZE` vs borderless — pick one and document. Virtual desktops: `IVirtualDesktopManager.MoveWindowToDesktop` is per-window; switching desktop is undocumented COM (`Win11 22621+` `IVirtualDesktopManagerInternal`) — **Adapt / high risk**. Do not port Dock-swipe CGEvent splice.
 - **Parity:** Geometry **Direct**. Spaces **Adapt** (or Drop if unwilling to use undocumented COM). Stage-adjacent: n/a.
 - **Edges:** Mixed-DPI multi-monitor (the AX primary-anchor bug). Terminal cell-size drift → compare observed frame not requested. Layouts must not write `WindowActionMemory`.
 
@@ -429,7 +429,7 @@ Each feature: name, user-facing behavior, invariants, key types/files, data stor
 - **Settings:** Navigation → Search Menu Bar Items section (command, Apple menu toggle, disabled apps).
 - **Windows:** UI Automation `ControlType.MenuBar` / `MenuItem` on the target HWND. Many Win32 apps have no exposed menu (owner-draw, ribbon). WPF/WinUI/UWP vary. Accept coverage loss (same as unbuilt macOS submenus).
 - **Parity:** **Adapt** (high coverage risk on Win32).
-- **Edges:** AX shortcut bits ≠ `NSEvent.ModifierFlags`. Self-target (Tinycast) classified before menu-less.
+- **Edges:** AX shortcut bits ≠ `NSEvent.ModifierFlags`. Self-target (Relay) classified before menu-less.
 
 ### System actions
 
@@ -507,7 +507,7 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 ### MCP
 
 - **Behavior:** Off. Settings → AI → MCP servers (HTTP or stdio command). Tools namespaced `slug__tool` (64 char, `[A-Za-z0-9_-]`). `@slug` addresses one server. Trust: Ask (default) / Always / Never; first call three-way dialog (Always / This Chat / Don’t Allow=Esc). Tools only on HTTP API routes, not Apple Intelligence / ChatGPT-Codex.
-- **Invariants:** Off = no process. Credentials Keychain only (`mcpSecrets`). HTTPS policy shared with AI. Tool call never stored as conversation turns (render record only). Dialog can grant; only Settings withholds (`.never`). Refused call is tool result content, not thrown. Max 10 rounds; result byte caps. Handle derived (`MCPSlug`). Servers start with chat, stop after 10 idle minutes. Tinycast exposes nothing back (no sampling/roots). `mcpEnabled` + `mcpServers` excluded from backup.
+- **Invariants:** Off = no process. Credentials Keychain only (`mcpSecrets`). HTTPS policy shared with AI. Tool call never stored as conversation turns (render record only). Dialog can grant; only Settings withholds (`.never`). Refused call is tool result content, not thrown. Max 10 rounds; result byte caps. Handle derived (`MCPSlug`). Servers start with chat, stop after 10 idle minutes. Relay exposes nothing back (no sampling/roots). `mcpEnabled` + `mcpServers` excluded from backup.
 - **Files:** `Features/MCP/` — `MCPProtocol`, `MCPHTTPTransport`, `MCPStdioTransport`, `MCPTrustPolicy`, `MCPCoordinator`, `AIToolLoopProvider`.
 - **Data:** server metadata UserDefaults; secrets Keychain.
 - **Permissions:** none beyond running user-specified processes (stdio is arbitrary code — consent flag).
@@ -532,15 +532,15 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 
 ### Raycast extensions
 
-- **Behavior:** Off until asked (consent to run third-party JS). Settings → Extensions: Search Registries, Import from Raycast (`~/.config/raycast` and `~/.config/raycast-x`), Add Folder. Commands appear in launcher with owner name as weak keyword. View commands take over palette (List/Grid/Detail/Form/ActionPanel). No-view run headless. Global shortcut per command. Aliases. Deeplinks `raycast://extensions/<owner>/<ext>/<cmd>` and `tinycast://` mirror. Background refresh on `interval`. OAuth PKCE; claims `raycast`, `com.raycast`, `tinycast` URL schemes.
+- **Behavior:** Off until asked (consent to run third-party JS). Settings → Extensions: Search Registries, Import from Raycast (`~/.config/raycast` and `~/.config/raycast-x`), Add Folder. Commands appear in launcher with owner name as weak keyword. View commands take over palette (List/Grid/Detail/Form/ActionPanel). No-view run headless. Global shortcut per command. Aliases. Deeplinks `raycast://extensions/<owner>/<ext>/<cmd>` and `relay://` mirror. Background refresh on `interval`. OAuth PKCE; claims `raycast`, `com.raycast`, `relay` URL schemes.
 - **Invariants:** Exactly one command / one `JSContext` at a time. Runtime `@unchecked Sendable` boundary. `RaycastRuntime.generated.js` generated, never hand-edited. `ExtensionScreen` is the only row-order. Off = fully off. `SymbolCatalog` reads `CoreGlyphs.bundle`. `extensionsEnabled` excluded from backup.
 - **Files:** `Features/Extensions/` (runtime, host bridge, node shims, OAuth, catalog, manager, render tree) + `Resources/RaycastRuntime.generated.js` + `Scripts/raycast-runtime/`.
-- **Data:** `.../extensions/<name>/`; `extension-data/<safe>.json`; `extension-commands.json`; `extension-support/`; Keychain `com.tinycast.extensions.oauth`; appearance overrides; hotkeys `hotkey.extensionCommand.<entry id>`.
+- **Data:** `.../extensions/<name>/`; `extension-data/<safe>.json`; `extension-commands.json`; `extension-support/`; Keychain `com.relay.extensions.oauth`; appearance overrides; hotkeys `hotkey.extensionCommand.<entry id>`.
 - **Permissions:** none OS-level; user consent. Network/exec as the extension asks (Node shims: fs, child_process, fetch, crypto, zlib, http).
 - **Settings:** Extensions (enable, show in launcher, per-extension/per-command visibility, registries, custom search PATH, storage cleanup, launcher icon override).
 - **Windows:** JavaScriptCore is Apple. Port options: (1) **ChakraCore / QuickJS / V8** embedding — Adapt, large. (2) Drop runtime, keep “import command metadata only”. Honest 1:1 requires a JS engine + the shim surface (`@raycast/api`, Node builtins). URL scheme conflict with installed Raycast is a deliberate Mac trade; on Windows `raycast://` is usually free. `uiAccess` not required for JS. `child_process` must use Job Objects. `menu-bar` commands: listed but don’t open (gap remains). `AI` / `BrowserExtension` / `WindowManagement` Raycast services: import OK, call throws.
 - **Parity:** **Adapt** (engine) — largest engineering item after Hyper Key. Do not claim byte-identical JavaScriptCore.
-- **Edges:** One context (timer-cancel bug). Rust helpers build `-e dev`. PATH locator for pnpm/bun/yarn/npm. OAuth 5 min timeout. Build workspace `$TMPDIR/tinycast-install-<uuid>/`. Measured 32/37 installed extensions boot on the author’s Mac — not a guarantee.
+- **Edges:** One context (timer-cancel bug). Rust helpers build `-e dev`. PATH locator for pnpm/bun/yarn/npm. OAuth 5 min timeout. Build workspace `$TMPDIR/relay-install-<uuid>/`. Measured 32/37 installed extensions boot on the author’s Mac — not a guarantee.
 
 ### Custom commands
 
@@ -550,7 +550,7 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 - **Data:** JSON in UserDefaults; UUID identity.
 - **Permissions:** none; running user scripts is the capability (backup warns).
 - **Settings:** Commands pane (library + Import Raycast Scripts). Fallbacks pane for ad-hoc shell.
-- **Windows:** **Adapt** — `cmd.exe` / `pwsh -NoProfile` / `pwsh -File`. Positional args still. Pty: ConPTY (`CreatePseudoConsole`). Stop: `GenerateConsoleCtrlEvent` / job object kill. `TINYCAST=1`. Load profile analog of `-ilc` is `-l` on pwsh (expensive; off by default). Working directory missing = fail, not home.
+- **Windows:** **Adapt** — `cmd.exe` / `pwsh -NoProfile` / `pwsh -File`. Positional args still. Pty: ConPTY (`CreatePseudoConsole`). Stop: `GenerateConsoleCtrlEvent` / job object kill. `RELAY=1`. Load profile analog of `-ilc` is `-l` on pwsh (expensive; off by default). Working directory missing = fail, not home.
 - **Parity:** **Adapt**.
 - **Edges:** No timeout except Stop. Command outlives app quit. Status 127 hint is Unix-specific — map to Win32 `ERROR_FILE_NOT_FOUND`.
 
@@ -567,7 +567,7 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 
 ### Backup
 
-- **Behavior:** Settings → Backup. Export/import `.tinycast` with five ticks: Settings & Shortcuts, Clipboard History, Snippets, Notes, Launcher Learning. Also Raycast `.rayconfig` entry.
+- **Behavior:** Settings → Backup. Export/import `.relay` with five ticks: Settings & Shortcuts, Clipboard History, Snippets, Notes, Launcher Learning. Also Raycast `.rayconfig` entry.
 - **Invariants:** Hand-written `SettingsBackup` mirror; `settings-backup-test` fails if a key is uncovered. Capability flags never imported (`snippetsEnabled`, `extensionsEnabled`, `calendarEnabled`, `autoJoinMeetings`, `cameraPreview`, `quickActionsEnabled`, `ai*`, `mcp*`, fallbacks, `aiWebSearch`, …). No absolute path in archive. Format version `==` only (no migration). Extensions, AI history, Keychain, Caches never travel.
 - **Layout:** `manifest.json`, `settings.json`, `clipboard/items.jsonl` + `images/`, `snippets/`, `notes/`, `learning/{ranking,emoji,calculator}.json`. AppleArchive LZFSE; Windows needs a replacement (zip + deflate is fine if filtered).
 - **Windows:** **Adapt** archive container (`System.IO.Compression` + entry filter for `..` and symlinks). Settings: JSON file under `%LOCALAPPDATA%` rather than `NSUserDefaults`. Secrets stay DPAPI/`Credential Manager`, never in the file.
@@ -576,7 +576,7 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 
 ### Raycast import
 
-- **Behavior:** `.rayconfig` = `RAYCFG3\n` + gzip header JSON + AES-256-GCM + tag. Key = scrypt(passphrase, salt, N=16384, r=8, p=1, dkLen=32). User types passphrase (Tinycast never reads Raycast’s Keychain). Maps apps (path after `::=::`), hotkeys (combo only), clipboard, snippets (`title`/`text`/`keyword`), quicklinks (`{Query}`→`{argument}`). Script commands are a **folder** importer, not this file. v1 and Raycast X beta formats deleted as of v0.10.5.
+- **Behavior:** `.rayconfig` = `RAYCFG3\n` + gzip header JSON + AES-256-GCM + tag. Key = scrypt(passphrase, salt, N=16384, r=8, p=1, dkLen=32). User types passphrase (Relay never reads Raycast’s Keychain). Maps apps (path after `::=::`), hotkeys (combo only), clipboard, snippets (`title`/`text`/`keyword`), quicklinks (`{Query}`→`{argument}`). Script commands are a **folder** importer, not this file. v1 and Raycast X beta formats deleted as of v0.10.5.
 - **Windows:** Crypto **Direct** (same bytes). Raycast for Windows exports may differ — verify before promising. Hotkey layout-independent codes need a Win32 mapping table.
 - **Parity:** **Direct** (file) / **Adapt** (keycodes, app IDs → AUMID).
 
@@ -584,13 +584,13 @@ See capabilities extract. Settings: currency on/off implied by engine; history c
 
 - **Behavior:** Daily GitHub Releases check (30s after launch). Native notes window. Zip by arch; signature check; `replaceItemAt`; relaunch via terminate not `exit`. Homebrew `auto_updates true` so brew does not fight. Dev bundle never updates. Prompt defers while expanding snippet, running extension, uninstalling, recording shortcut, dialog up, or palette open; re-offer 2 min × 30 min.
 - **Data:** `~/Library/Caches/<id>/update-check.json` only. Nothing in AppSettings.
-- **Windows:** **Adapt** — GitHub Releases zip + `MoveFileEx` replace. Code signing: Authenticode (`WinVerifyTrust`) against pinned publisher. Install dir `%LOCALAPPDATA%\Programs\Tinycast` to avoid needing elevation. WinGet `UpgradeBehavior: install` if packaged. Do not shell out to `xattr`. Channels via separate AppIDs / side-by-side install dirs.
+- **Windows:** **Adapt** — GitHub Releases zip + `MoveFileEx` replace. Code signing: Authenticode (`WinVerifyTrust`) against pinned publisher. Install dir `%LOCALAPPDATA%\Programs\Relay` to avoid needing elevation. WinGet `UpgradeBehavior: install` if packaged. Do not shell out to `xattr`. Channels via separate AppIDs / side-by-side install dirs.
 - **Parity:** **Adapt**.
 - **Edges:** Intel vs arm zip selection → x64 vs arm64 vs `win-x64`/`win-arm64`. No Sparkle.
 
 ### Uninstall (app’s own leftover cleaner)
 
-Already under System. The **product** uninstall of Tinycast itself should mirror Mac: remove `%LOCALAPPDATA%\<id>`, `%APPDATA%`, scheduled task (login item), hotkey hooks, Credential Manager entries. Settings → About can keep a “Reset Tinycast” later; Mac uses the Uninstall Application feature only for **other** apps.
+Already under System. The **product** uninstall of Relay itself should mirror Mac: remove `%LOCALAPPDATA%\<id>`, `%APPDATA%`, scheduled task (login item), hotkey hooks, Credential Manager entries. Settings → About can keep a “Reset Relay” later; Mac uses the Uninstall Application feature only for **other** apps.
 
 ### Support
 
@@ -611,7 +611,7 @@ Searchable (`SettingsSearchCatalog`). Sidebar sections as above. Permissions pan
 
 ### Menu bar
 
-Two independent extras: Tinycast’s own (`showInMenuBar`) and Calendar’s (`calendarMenuBarDisplay`). Either/both/neither.
+Two independent extras: Relay’s own (`showInMenuBar`) and Calendar’s (`calendarMenuBarDisplay`). Either/both/neither.
 
 **Windows:** NotifyIcon in the notification area. Calendar title cap still required. **Adapt** (no `MenuBarExtra` scenes). Win11 overflow tray is a UX hit.
 
@@ -669,11 +669,11 @@ Pane-owned (switch lives on the feature pane): AI, Quick Actions, File Search, N
 
 ## Sources
 
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/docs/README.md
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/docs/features/*.md (all 28)
-- https://api.github.com/repos/abue-ammar/tinycast/contents/Tinycast/Features?ref=main
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/Tinycast/Features/SystemActions/Model/SystemAction.swift
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/Tinycast/Features/WindowManagement/Model/WindowCommand.swift
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/Tinycast/Features/Settings/SettingsTab.swift
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/Tinycast/Features/Onboarding/OnboardingView.swift
-- https://raw.githubusercontent.com/abue-ammar/tinycast/main/README.md
+- https://raw.githubusercontent.com/abue-ammar/relay/main/docs/README.md
+- https://raw.githubusercontent.com/abue-ammar/relay/main/docs/features/*.md (all 28)
+- https://api.github.com/repos/abue-ammar/relay/contents/Relay/Features?ref=main
+- https://raw.githubusercontent.com/abue-ammar/relay/main/Relay/Features/SystemActions/Model/SystemAction.swift
+- https://raw.githubusercontent.com/abue-ammar/relay/main/Relay/Features/WindowManagement/Model/WindowCommand.swift
+- https://raw.githubusercontent.com/abue-ammar/relay/main/Relay/Features/Settings/SettingsTab.swift
+- https://raw.githubusercontent.com/abue-ammar/relay/main/Relay/Features/Onboarding/OnboardingView.swift
+- https://raw.githubusercontent.com/abue-ammar/relay/main/README.md

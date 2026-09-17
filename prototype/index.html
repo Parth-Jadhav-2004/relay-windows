@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tinycast for Windows — UI prototype</title>
+  <title>Relay for Windows — UI prototype</title>
   <style>
-    /* Throwaway prototype. Tokens from Tinycast Theme.swift. Not production. */
+    /* Throwaway prototype. Tokens from Relay Theme.swift. Not production. */
     :root {
       --xxs: 2px; --xs: 4px; --sm: 6px; --md: 8px; --lg: 10px; --xl: 12px; --xxl: 20px;
       --r-panel: 26px; --r-row: 10px; --r-card: 10px; --r-dialog: 20px;
@@ -422,7 +422,7 @@
       <div class="tb-ico">🗂️</div>
       <div class="tb-ico">🌐</div>
       <div class="tb-ico active">💻</div>
-      <div class="tray-dot" title="Tinycast"></div>
+      <div class="tray-dot" title="Relay"></div>
       <div class="tb-clock" id="clock"></div>
     </div>
   </div>
@@ -436,7 +436,7 @@
   </div>
 
   <script>
-    /* Question: how should Tinycast-for-Windows look? Six product surfaces, one token set. */
+    /* Question: how should Relay-for-Windows look? Six product surfaces, one token set. */
     const SCENES = [
       { id: "launcher", name: "A · Launcher" },
       { id: "clipboard", name: "B · Clipboard" },
@@ -471,10 +471,10 @@
 
     const CLIPS = [
       { kind: "color", title: "#7C3AED", body: "Brand violet", color: "#7C3AED", pin: true, meta: "Pinned" },
-      { kind: "text", title: "git push -u origin HEAD", body: "git push -u origin HEAD\n# first publish of tinycast-windows", meta: "Today · 4:12 PM" },
-      { kind: "text", title: "https://github.com/abue-ammar/tinycast", body: "https://github.com/abue-ammar/tinycast", meta: "Today · 3:41 PM" },
+      { kind: "text", title: "git push -u origin HEAD", body: "git push -u origin HEAD\n# first publish of relay-windows", meta: "Today · 4:12 PM" },
+      { kind: "text", title: "https://github.com/abue-ammar/relay", body: "https://github.com/abue-ammar/relay", meta: "Today · 3:41 PM" },
       { kind: "image", title: "Screenshot 2026-09-16", body: "PNG · 1920×1080", meta: "Today · 2:08 PM" },
-      { kind: "file", title: "Tinycast.sln", body: "D:\\tinycast-windows\\Tinycast.sln", meta: "Yesterday" },
+      { kind: "file", title: "Relay.sln", body: "D:\\relay-windows\\Relay.sln", meta: "Yesterday" },
       { kind: "text", title: "Alt+Space summons the palette", body: "One shortcut, everything you reach for all day.", meta: "Yesterday" },
     ];
 
@@ -550,7 +550,7 @@
           </div>
           <div class="list" id="list">${renderBody(mode)}</div>
           <div class="footer">
-            <button class="circle" id="menuBtn" title="Tinycast">${svg.dots}</button>
+            <button class="circle" id="menuBtn" title="Relay">${svg.dots}</button>
             <div class="pill">
               <button class="pill-btn" id="act">${actionLabel(mode)} ${keys(["Enter"])}</button>
               <div class="pill-split"></div>
@@ -559,8 +559,8 @@
           </div>
           <div class="menu hidden" id="menu">
             <div class="menu-row"><span class="g">⚙</span><span>Settings</span>${keys(["Ctrl",","])}</div>
-            <div class="menu-row"><span class="g">?</span><span>Support Tinycast</span></div>
-            <div class="menu-row"><span class="g">⎋</span><span>Quit Tinycast</span></div>
+            <div class="menu-row"><span class="g">?</span><span>Support Relay</span></div>
+            <div class="menu-row"><span class="g">⎋</span><span>Quit Relay</span></div>
           </div>
         </div>`;
     }
@@ -640,7 +640,7 @@
       const panes = ["General","Permissions","Applications","Shortcuts","Clipboard","Window Management","Snippets","AI","Backup"];
       const nav = panes.map(p => `<button class="nav ${state.settingsPane===p?"on":""}" data-pane="${p}">${p}</button>`).join("");
       return `<div class="settings glass-panel">
-        <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>Tinycast Settings</div>
+        <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>Relay Settings</div>
         <div class="split-set">
           <div class="side">
             <input class="side-search" placeholder="Search" />
@@ -649,7 +649,7 @@
           <div class="detail">
             <h1>General</h1>
             <div class="group">
-              <div class="grow"><div>Summon Tinycast<small>Global shortcut from anywhere</small></div><div class="rec">${keys(["Alt","Space"])}</div></div>
+              <div class="grow"><div>Summon Relay<small>Global shortcut from anywhere</small></div><div class="rec">${keys(["Alt","Space"])}</div></div>
               <div class="grow"><div>Launch at login</div><div class="toggle on"><i></i></div></div>
               <div class="grow"><div>Show in tray</div><div class="toggle on"><i></i></div></div>
               <div class="grow"><div>Appearance<small>Dark is the design. Light inverts the ink.</small></div><div class="rec">${state.appearance}</div></div>
