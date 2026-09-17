@@ -1,7 +1,5 @@
 namespace Tinycast.Features.Commands;
 
-public sealed record CustomCommand(string Id, string Name, string FileName, IReadOnlyList<string> Arguments, bool Confirm);
-
 public sealed record NoteDocument(string Id, string Title, string Path, string Text);
 
 public static class BuiltinCommands
@@ -26,6 +24,7 @@ public static class BuiltinCommands
     public const string Schedule = "command:schedule";
     public const string TogglePalette = "command:toggle-palette";
     public const string SaveLayout = "command:save-layout";
+    public const string CreateLayout = "command:create-layout";
     public const string SearchNotes = "command:search-notes";
     public const string RevealNotes = "command:reveal-notes";
     public const string JoinNext = "command:join-next";

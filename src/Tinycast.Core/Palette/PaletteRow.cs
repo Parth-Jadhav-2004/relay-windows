@@ -20,7 +20,9 @@ public sealed record PaletteRow(
     string? PrimaryAction = null,
     bool ShowActions = false,
     bool IsError = false,
-    bool FillIcon = false)
+    bool FillIcon = false,
+    bool? Checked = null,
+    string? Accessory = null)
 {
     public bool IsLeadCard => IsCard && LeadExpression is not null;
 

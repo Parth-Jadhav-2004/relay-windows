@@ -63,14 +63,36 @@ internal static class FilePreviewPane
 
         Grid.SetRow(preview, 0);
         host.Children.Add(preview);
-        var info = new TextBlock
+        var info = File.Exists(path) ? new FileInfo(path) : null;
+        var dir = Directory.Exists(path) ? new DirectoryInfo(path) : null;
+        var lines = new List<string> { path };
+        if (info is not null)
         {
-            Text = path,
+            lines.Add(SizeLabel(info.Length));
+            lines.Add(info.LastWriteTime.ToString("g"));
+        }
+        else if (dir is not null)
+            lines.Add(dir.LastWriteTime.ToString("g"));
+        var meta = new TextBlock
+        {
+            Text = string.Join(Environment.NewLine, lines),
             Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0),
+            Foreground = ThemeBrushes.InkBrush(Theme.Colors.TextSecondary.For(dark), dark),
         };
-        Grid.SetRow(info, 1);
-        host.Children.Add(info);
+        Grid.SetRow(meta, 1);
+        host.Children.Add(meta);
+    }
+
+    static string SizeLabel(long bytes)
+    {
+        if (bytes < 1000)
+            return bytes + " B";
+        if (bytes < 1_000_000)
+            return (bytes / 1000.0).ToString("0.#") + " KB";
+        if (bytes < 1_000_000_000)
+            return (bytes / 1_000_000.0).ToString("0.#") + " MB";
+        return (bytes / 1_000_000_000.0).ToString("0.#") + " GB";
     }
 }

@@ -23,6 +23,9 @@ public static class AppSettingsKey
     public const string QuicklinksEnabled = "quicklinksEnabled";
     public const string CustomCommandsEnabled = "customCommandsEnabled";
     public const string NavigationEnabled = "navigationEnabled";
+    public const string SnippetsShowInLauncher = "snippetsShowInLauncher";
+    public const string WindowLayoutsShowInLauncher = "windowLayoutsShowInLauncher";
+    public const string CustomCommandsShowInLauncher = "customCommandsShowInLauncher";
     public const string FileSearchScopes = "fileSearchScopes";
     public const string FileSearchIgnorePatterns = "fileSearchIgnorePatterns";
     public const string WindowGap = "windowGap";
@@ -49,7 +52,8 @@ public static class AppSettingsKey
         SnippetsEnabled, AiEnabled, CalendarEnabled, AutoJoinMeetings, CameraPreview,
         McpEnabled, ExtensionsEnabled, QuickActionsEnabled, ClipboardEnabled,
         WindowManagementEnabled, FileSearchEnabled, NotesEnabled, QuicklinksEnabled,
-        CustomCommandsEnabled, NavigationEnabled, FileSearchScopes, FileSearchIgnorePatterns,
+        CustomCommandsEnabled, NavigationEnabled, SnippetsShowInLauncher, WindowLayoutsShowInLauncher,
+        CustomCommandsShowInLauncher, FileSearchScopes, FileSearchIgnorePatterns,
         WindowGap, WindowCycle, EmojiColumns,
         ClipboardOcrEnabled, ClipboardRetentionDays, ClipboardKeepOpen, ClipboardDefaultAction,
         ClipboardIgnoredApps, EmojiSkinTone, CompactPalette, PaletteRememberPosition,

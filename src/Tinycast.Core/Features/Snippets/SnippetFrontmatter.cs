@@ -20,6 +20,8 @@ public static class SnippetFrontmatter
         var body = text[(end + 4)..].TrimStart('\n');
         var name = id;
         var keyword = "";
+        var enabled = true;
+        var confirm = false;
         foreach (var line in header.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var colon = line.IndexOf(':');
@@ -31,13 +33,20 @@ public static class SnippetFrontmatter
                 name = value;
             if (key.Equals("keyword", StringComparison.OrdinalIgnoreCase))
                 keyword = value;
+            if (key.Equals("enabled", StringComparison.OrdinalIgnoreCase))
+                enabled = value is "true" or "1";
+            if (key.Equals("show_confirmation", StringComparison.OrdinalIgnoreCase))
+                confirm = value is "true" or "1";
         }
 
-        return new StoredSnippet(id, name, keyword, body);
+        return new StoredSnippet(id, name, keyword, body, enabled, confirm);
     }
 
     public static string Serialize(StoredSnippet snippet) =>
-        "---\nname: " + snippet.Name + "\nkeyword: " + snippet.Keyword + "\n---\n" + snippet.Text + "\n";
+        "---\nname: " + snippet.Name + "\nkeyword: " + snippet.Keyword
+        + "\nenabled: " + (snippet.Enabled ? "true" : "false")
+        + "\nshow_confirmation: " + (snippet.ShowConfirmation ? "true" : "false")
+        + "\n---\n" + snippet.Text + "\n";
 
     public static IReadOnlyList<string> ConflictingKeywords(IReadOnlyList<StoredSnippet> snippets)
     {

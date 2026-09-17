@@ -155,6 +155,19 @@ public sealed class HotKeyBinding
     public bool IsEmpty => Chord is null && DoubleTap is null;
 }
 
+public static class HotKeyCatalog
+{
+    public static string DefaultsKey(string commandId) => "hotkey." + commandId;
+
+    public static IReadOnlyList<HotKeyBinding> ConflictsFor(HotKeyBinding candidate, IReadOnlyList<HotKeyBinding> bindings) =>
+        HotKeyConflicts.Find([candidate, .. bindings.Where(b => b.CommandId != candidate.CommandId)])
+            .Select(pair => pair.A.CommandId == candidate.CommandId ? pair.B : pair.A)
+            .ToList();
+
+    public static IReadOnlyList<string> PruneMissing(IEnumerable<string> boundIds, IReadOnlySet<string> liveIds) =>
+        boundIds.Where(liveIds.Contains).ToList();
+}
+
 public static class HotKeyConflicts
 {
     public static IReadOnlyList<(HotKeyBinding A, HotKeyBinding B)> Find(IReadOnlyList<HotKeyBinding> bindings)

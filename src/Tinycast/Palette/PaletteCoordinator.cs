@@ -39,6 +39,12 @@ public sealed class PaletteCoordinator
     {
         if (mode == PaletteMode.FileSearch && _core.Palette.Mode != PaletteMode.FileSearch)
             _core.FileSearchCoordinator.Reset();
+        if (mode == PaletteMode.MenuSearch && _core.Palette.Mode != PaletteMode.MenuSearch)
+            _core.MenuSearchCoordinator.Capture();
+        if (mode != PaletteMode.MenuSearch && _core.Palette.Mode == PaletteMode.MenuSearch)
+            _core.MenuSearchCoordinator.Reset();
+        if (mode != PaletteMode.CommandArguments && _core.Palette.Mode == PaletteMode.CommandArguments)
+            _core.ClearArguments();
         if (IsVisible && _core.Palette.Mode != mode && mode != PaletteMode.Launcher)
             _core.Palette.Push(mode);
         else
@@ -47,6 +53,8 @@ public sealed class PaletteCoordinator
 
     public void ShowPalette(PaletteMode mode, bool restoreAnyMode = false, string? seeding = null)
     {
+        if (!ModeAllowed(mode))
+            mode = PaletteMode.Launcher;
         if (seeding is not null || !restoreAnyMode || _core.Palette.Mode != mode)
             Navigate(mode);
         if (seeding is not null)
@@ -63,6 +71,7 @@ public sealed class PaletteCoordinator
         _hiddenAt = DateTime.UtcNow;
         _hiddenMode = _core.Palette.Mode;
         _core.FileSearchCoordinator.Reset();
+        _core.MenuSearchCoordinator.Reset();
         _core.PaletteWindow?.HidePalette(restoreFocus);
         if (_core.Settings.PalettePopToRootSeconds <= 0)
             _core.Palette.Prepare(PaletteMode.Launcher);
@@ -80,10 +89,24 @@ public sealed class PaletteCoordinator
 
         if (_core.Palette.Mode == PaletteMode.FileSearch && _core.FileSearchCoordinator.HandleEscape())
             return;
+        if (_core.Palette.Mode == PaletteMode.CommandArguments && _core.BackArguments())
+            return;
         if (_core.Palette.Pop())
             return;
         HidePalette();
     }
+
+    bool ModeAllowed(PaletteMode mode) => mode switch
+    {
+        PaletteMode.FileSearch => _core.Settings.FileSearchEnabled,
+        PaletteMode.Snippets => _core.Settings.SnippetsEnabled,
+        PaletteMode.Quicklinks => _core.Settings.QuicklinksEnabled,
+        PaletteMode.SwitchWindows or PaletteMode.MenuSearch => _core.Settings.NavigationEnabled,
+        PaletteMode.AiChat => _core.Settings.AiEnabled,
+        PaletteMode.Schedule => _core.Settings.CalendarEnabled,
+        PaletteMode.Clipboard => _core.Settings.ClipboardEnabled,
+        _ => true,
+    };
 
     public void RingTab(bool backwards)
     {
@@ -92,6 +115,8 @@ public sealed class PaletteCoordinator
             return;
         if (_core.Palette.Mode == PaletteMode.FileSearch)
             _core.FileSearchCoordinator.Reset();
+        if (_core.Palette.Mode == PaletteMode.MenuSearch)
+            _core.MenuSearchCoordinator.Reset();
         _core.Palette.PushCarryingQuery(next);
     }
 }

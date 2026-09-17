@@ -353,15 +353,3 @@ public static class WindowSwitchQuery
     }
 }
 
-public sealed record MenuSearchItem(string Path, string Shortcut, uint CommandId = 0, nint Hwnd = 0);
-
-public static class MenuSearchQuery
-{
-    public static IReadOnlyList<MenuSearchItem> Filter(IEnumerable<MenuSearchItem> items, string query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-            return items.ToList();
-        var q = Features.Launcher.FuzzyMatcher.Query.Parse(query);
-        return items.Where(i => Features.Launcher.FuzzyMatcher.Match(q, i.Path) is not null).ToList();
-    }
-}

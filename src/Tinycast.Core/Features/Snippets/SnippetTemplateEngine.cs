@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Tinycast.Features.Snippets;
 
-public sealed record StoredSnippet(string Id, string Name, string Keyword, string Text);
+public sealed record StoredSnippet(string Id, string Name, string Keyword, string Text, bool Enabled = true, bool ShowConfirmation = false);
 
 public sealed record MissingArgument(string Name, IReadOnlyList<string> Options);
 
@@ -38,20 +38,27 @@ public static class SnippetTemplateEngine
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var token in Tokens(text))
         {
-            if (!token.StartsWith("argument", StringComparison.OrdinalIgnoreCase))
+            if (!IsArgumentToken(token))
                 continue;
-            var (name, defaultValue) = ParseArgument(token);
-            if (defaultValue is not null)
+            var parsed = ParseArgument(token);
+            if (parsed.DefaultValue is not null)
                 continue;
-            if (seen.Add(name))
-                declared.Add(new MissingArgument(name, []));
+            if (seen.Add(parsed.Name))
+                declared.Add(new MissingArgument(parsed.Name, parsed.Options));
         }
 
         return declared;
     }
 
     public static bool UsesSelection(string text) =>
-        text.Contains("{selection", StringComparison.OrdinalIgnoreCase);
+        text.Contains("{selection", StringComparison.OrdinalIgnoreCase)
+        || text.Contains("{selectedText", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsArgumentToken(string token)
+    {
+        var name = TokenName(token);
+        return name is "argument" or "query";
+    }
 
     static string ExpandText(
         string text,
@@ -180,47 +187,37 @@ public static class SnippetTemplateEngine
         int position,
         ref int? cursor)
     {
-        var lower = token.ToLowerInvariant();
-        if (lower == "cursor")
+        var name = TokenName(token);
+        var modifiers = TokenModifiers(token);
+        if (name == "cursor")
         {
             cursor = position;
             return "";
         }
 
-        if (lower is "clipboard" or "clipboard:0")
-            return ApplyModifier(context.Clipboard, token);
-        if (lower.StartsWith("clipboard:", StringComparison.Ordinal))
+        if (name is "clipboard")
         {
-            if (int.TryParse(lower["clipboard:".Length..], out var index) && index >= 0 && index < context.ClipboardHistory.Count)
-                return context.ClipboardHistory[index];
-            return "";
+            var offset = IntParam(token, "offset") ?? (ColonIndex(token) is { } colon ? TryInt(token[(colon + 1)..]) : 0);
+            var value = offset >= 0 && offset < context.ClipboardHistory.Count ? context.ClipboardHistory[offset] : "";
+            return ApplyModifiers(value, modifiers);
         }
 
-        if (lower is "selection" || lower.StartsWith("selection ", StringComparison.Ordinal))
-            return ApplyModifier(context.Selection, token);
-        if (lower is "uuid")
-            return context.MakeUuid();
-        if (lower is "date")
-            return context.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        if (lower.StartsWith("date format=", StringComparison.Ordinal)
-            || lower.StartsWith("date:", StringComparison.Ordinal))
-        {
-            var format = lower.StartsWith("date format=", StringComparison.Ordinal)
-                ? token[12..].Trim().Trim('"')
-                : token[5..].Trim().Trim('"');
-            try { return context.Now.ToString(format, CultureInfo.InvariantCulture); }
-            catch (Exception) { return context.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
-        }
+        if (name is "selection" or "selectedtext")
+            return ApplyModifiers(context.Selection, modifiers);
+        if (name is "uuid")
+            return ApplyModifiers(context.MakeUuid(), modifiers);
+        if (name is "day")
+            return ApplyModifiers(context.Now.ToString("dddd", CultureInfo.CurrentCulture), modifiers);
+        if (name is "date" or "time" or "datetime")
+            return ApplyModifiers(FormatDate(name, token, context), modifiers);
 
-        if (lower is "time")
-            return context.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
-        if (lower is "datetime")
-            return context.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-
-        if (lower.StartsWith("snippet:", StringComparison.Ordinal))
+        if (name is "snippet")
         {
-            var id = token[8..].Trim();
-            var snippet = snippets.FirstOrDefault(s => s.Id == id || s.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
+            var id = StringParam(token, "name") ?? AfterColon(token);
+            var snippet = snippets.FirstOrDefault(s =>
+                s.Id.Equals(id, StringComparison.OrdinalIgnoreCase)
+                || s.Name.Equals(id, StringComparison.OrdinalIgnoreCase)
+                || s.Keyword.Equals(id, StringComparison.OrdinalIgnoreCase));
             if (snippet is null || !visited.Add(snippet.Id))
                 return "{" + token + "}";
             var expanded = ExpandText(snippet.Text, context, args, snippets, depth + 1, visited, missing, missingNames, ref cursor);
@@ -228,57 +225,216 @@ public static class SnippetTemplateEngine
             return expanded;
         }
 
-        if (lower.StartsWith("argument", StringComparison.Ordinal))
+        if (name is "argument" or "query")
         {
-            var (name, defaultValue) = ParseArgument(token);
-            if (args.TryGetValue(name, out var supplied))
-                return supplied;
-            if (defaultValue is not null)
-                return defaultValue;
-            if (missingNames.Add(name))
-                missing.Add(new MissingArgument(name, []));
+            var parsed = ParseArgument(token);
+            if (args.TryGetValue(parsed.Name, out var supplied))
+                return ApplyModifiers(supplied, modifiers);
+            if (parsed.DefaultValue is not null)
+                return ApplyModifiers(parsed.DefaultValue, modifiers);
+            if (missingNames.Add(parsed.Name))
+                missing.Add(new MissingArgument(parsed.Name, parsed.Options));
             return "";
         }
 
         return "{" + token + "}";
     }
 
-    static (string Name, string? DefaultValue) ParseArgument(string token)
+    static string FormatDate(string name, string token, ExpansionContext context)
     {
-        var name = "argument";
-        string? defaultValue = null;
-        if (!token.StartsWith("argument", StringComparison.OrdinalIgnoreCase))
-            return (name, defaultValue);
-        var rest = token[8..].TrimStart();
-        if (rest.Length == 0)
-            return (name, defaultValue);
-
-        var defAt = rest.IndexOf("default=", StringComparison.OrdinalIgnoreCase);
-        if (defAt >= 0)
+        var locale = StringParam(token, "locale");
+        var format = StringParam(token, "format");
+        var culture = CultureInfo.CurrentCulture;
+        if (locale is not null)
         {
-            defaultValue = Unquote(rest[(defAt + "default=".Length)..].Trim());
-            rest = rest[..defAt].Trim();
+            try { culture = CultureInfo.GetCultureInfo(locale); }
+            catch (Exception) { }
         }
 
-        if (rest.StartsWith("name=", StringComparison.OrdinalIgnoreCase))
-            rest = rest["name=".Length..].Trim();
-        if (rest.Length > 0)
-            name = Unquote(rest);
-        return (name, defaultValue);
+        var clock = context.Now;
+        if (TimeZoneInfo.Local.Id != context.TimeZone.Id)
+            clock = TimeZoneInfo.ConvertTime(clock, context.TimeZone);
+        if (OffsetParam(token) is { } offset)
+            clock = ApplyOffset(clock, offset);
+
+        if (format is not null)
+        {
+            try { return clock.ToString(format, locale is null ? CultureInfo.InvariantCulture : culture); }
+            catch (Exception) { return clock.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+        }
+
+        return name switch
+        {
+            "time" => locale is null ? clock.ToString("HH:mm", CultureInfo.InvariantCulture) : clock.ToString("t", culture),
+            "datetime" => locale is null ? clock.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : clock.ToString("g", culture),
+            _ => locale is null ? clock.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : clock.ToString("d", culture),
+        };
     }
+
+    static DateTime ApplyOffset(DateTime clock, string offset)
+    {
+        foreach (var part in offset.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var text = part.Trim();
+            if (text.Length < 2)
+                continue;
+            var unit = text[^1];
+            if (!int.TryParse(text[..^1], out var amount))
+                continue;
+            clock = unit switch
+            {
+                'm' => clock.AddMinutes(amount),
+                'h' => clock.AddHours(amount),
+                'd' => clock.AddDays(amount),
+                'M' => clock.AddMonths(amount),
+                'y' => clock.AddYears(amount),
+                _ => clock,
+            };
+        }
+
+        return clock;
+    }
+
+    static string TokenName(string token)
+    {
+        var body = token.Split('|', 2)[0].Trim();
+        var end = 0;
+        while (end < body.Length && (char.IsLetter(body[end]) || body[end] == '-' || body[end] == '_'))
+            end++;
+        return body[..end].ToLowerInvariant();
+    }
+
+    static IReadOnlyList<string> TokenModifiers(string token) =>
+        token.Contains('|')
+            ? token.Split('|').Skip(1).Select(m => m.Trim().ToLowerInvariant()).Where(m => m.Length > 0).ToList()
+            : [];
+
+    static string? StringParam(string token, string key)
+    {
+        var body = token.Split('|', 2)[0];
+        var needle = key + "=";
+        var start = body.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return null;
+        var rest = body[(start + needle.Length)..].Trim();
+        if (rest.StartsWith('"'))
+        {
+            var end = rest.IndexOf('"', 1);
+            return end < 0 ? Unquote(rest) : rest[1..end];
+        }
+
+        var nextKey = -1;
+        for (var i = 1; i < rest.Length - 1; i++)
+        {
+            if (char.IsWhiteSpace(rest[i - 1]) && char.IsLetter(rest[i]))
+            {
+                var j = i;
+                while (j < rest.Length && (char.IsLetter(rest[j]) || rest[j] == '_'))
+                    j++;
+                if (j < rest.Length && rest[j] == '=')
+                {
+                    nextKey = i - 1;
+                    break;
+                }
+            }
+        }
+
+        return (nextKey < 0 ? rest : rest[..nextKey]).Trim();
+    }
+
+    static int? IntParam(string token, string key)
+    {
+        var text = StringParam(token, key);
+        return int.TryParse(text, out var value) ? value : null;
+    }
+
+    static string? OffsetParam(string token) => StringParam(token, "offset");
+
+    static int? ColonIndex(string token)
+    {
+        var body = token.Split('|', 2)[0];
+        var colon = body.IndexOf(':');
+        return colon < 0 ? null : colon;
+    }
+
+    static int TryInt(string text) => int.TryParse(text.Trim(), out var value) ? value : 0;
+
+    static string AfterColon(string token)
+    {
+        var body = token.Split('|', 2)[0];
+        var colon = body.IndexOf(':');
+        return colon < 0 ? "" : body[(colon + 1)..].Trim().Trim('"');
+    }
+
+    static string ApplyModifiers(string value, IReadOnlyList<string> modifiers)
+    {
+        var current = value;
+        foreach (var modifier in modifiers)
+        {
+            current = modifier switch
+            {
+                "uppercase" => current.ToUpperInvariant(),
+                "lowercase" => current.ToLowerInvariant(),
+                "trim" => current.Trim(),
+                "percent-encode" => Uri.EscapeDataString(current),
+                "json-stringify" => JsonEscape(current),
+                "raw" => current,
+                _ => current,
+            };
+        }
+
+        return current;
+    }
+
+    static string JsonEscape(string value)
+    {
+        var builder = new StringBuilder();
+        foreach (var c in value)
+        {
+            builder.Append(c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ => c.ToString(),
+            });
+        }
+
+        return builder.ToString();
+    }
+
+    static ArgumentSpec ParseArgument(string token)
+    {
+        var name = TokenName(token) == "query" ? "Argument" : "Argument";
+        if (TokenName(token) == "query")
+            name = "Argument";
+        string? defaultValue = StringParam(token, "default");
+        var optionsText = StringParam(token, "options");
+        var named = StringParam(token, "name");
+        if (named is { Length: > 0 })
+            name = named;
+        else
+        {
+            var body = token.Split('|', 2)[0].Trim();
+            var rest = body;
+            if (rest.StartsWith("argument", StringComparison.OrdinalIgnoreCase))
+                rest = rest[8..].Trim();
+            else if (rest.StartsWith("query", StringComparison.OrdinalIgnoreCase))
+                rest = rest[5..].Trim();
+            if (rest.Length > 0 && !rest.Contains('='))
+                name = Unquote(rest);
+        }
+
+        var options = optionsText is null
+            ? Array.Empty<string>()
+            : optionsText.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return new ArgumentSpec(name, defaultValue, options);
+    }
+
+    sealed record ArgumentSpec(string Name, string? DefaultValue, IReadOnlyList<string> Options);
 
     static string Unquote(string value) =>
         value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1] : value;
-
-    static string ApplyModifier(string value, string token)
-    {
-        var lower = token.ToLowerInvariant();
-        if (lower.Contains("uppercase", StringComparison.Ordinal))
-            return value.ToUpperInvariant();
-        if (lower.Contains("lowercase", StringComparison.Ordinal))
-            return value.ToLowerInvariant();
-        if (lower.Contains("trim", StringComparison.Ordinal))
-            return value.Trim();
-        return value;
-    }
 }

@@ -7,6 +7,7 @@ using Tinycast.Features.Backup;
 using Tinycast.Features.Calculator;
 using Tinycast.Features.Calendar;
 using Tinycast.Features.Clipboard;
+using Tinycast.Features.Commands;
 using Tinycast.Features.Emoji;
 using Tinycast.Features.HotKeys;
 using Tinycast.Features.Launcher;
@@ -368,7 +369,7 @@ void Check(string name, bool ok, string? detail = null)
 
 {
     var identity = new UninstallIdentity("Tinycast", "com.tinycast.windows", []);
-    Check("name match needs three letters", UninstallRules.MatchesName("Tinycast leftovers", identity));
+    Check("name match is exact and long enough", UninstallRules.MatchesName("Tinycast", identity) && !UninstallRules.MatchesName("Tinycast leftovers", identity));
     Check("short names do not match", !UninstallRules.MatchesName("ti", new UninstallIdentity("ti", null, [])));
     Check("windows folder is protected", UninstallRules.IsProtected(Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
     var tinycastData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Tinycast");
@@ -677,6 +678,10 @@ void Check(string name, bool ok, string? detail = null)
     Check("clipboard policy ignores app", ClipboardPolicy.IsIgnored("C:\\Apps\\Slack.exe", ["Slack"]));
     Check("clipboard policy retention", ClipboardPolicy.RetentionCutoff(90, new DateTime(2026, 9, 17, 0, 0, 0, DateTimeKind.Utc)) == new DateTime(2026, 6, 19, 0, 0, 0, DateTimeKind.Utc));
     Check("escape clears query first", PaletteEscape.ClearsQueryFirst("foo", true) && !PaletteEscape.ClearsQueryFirst("", true));
+    Check("bare digit types into empty query", !PaletteDigit.ActivatesSlot("", control: false, alt: false));
+    Check("ctrl digit activates empty-query slot", PaletteDigit.ActivatesSlot("", control: true, alt: false));
+    Check("ctrl digit does not steal a typed query", !PaletteDigit.ActivatesSlot("8", control: true, alt: false));
+    Check("alt digit is not a slot", !PaletteDigit.ActivatesSlot("", control: true, alt: true));
     Check("volume steps 50 percent is 25 ups", VolumeSteps.UpsFromPercent(50) == 25);
     Check("emoji skin tints clap", EmojiSkin.Apply("👏", 3) != "👏");
     var md = SnippetFrontmatter.Parse("sig.md", "---\nname: Sign-off\nkeyword: sig\n---\nThanks,\n{date}\n");
@@ -979,6 +984,169 @@ Regression("settings prevalidation", () =>
     }
     finally { Directory.Delete(dir, true); }
 });
+
+{
+    var defaults = new AppSettings();
+    Check("clipboard stays on by default", defaults.ClipboardEnabled);
+    Check("file search ships off", !defaults.FileSearchEnabled);
+    Check("window management ships off", !defaults.WindowManagementEnabled);
+    Check("navigation ships off", !defaults.NavigationEnabled);
+    Check("custom commands ship off", !defaults.CustomCommandsEnabled);
+    Check("notes ship off", !defaults.NotesEnabled);
+    Check("snippets ship off", !defaults.SnippetsEnabled);
+    Check("quicklinks ship off", !defaults.QuicklinksEnabled);
+}
+
+{
+    Check("emoji catalog is generated", EmojiCatalog.All.Count > 1500);
+    var birthday = EmojiSearch.Rank(EmojiCatalog.All, "birthday", 0, [], [], null);
+    Check("birthday ranks cake first", birthday.Count > 0 && birthday[0].Glyph == "🎂", birthday.FirstOrDefault()?.Name);
+    var plusOne = EmojiSearch.Rank(EmojiCatalog.All, ":+1:", 0, [], [], null);
+    Check("colon query unwraps +1", plusOne.Count > 0 && plusOne[0].Glyph == "👍", plusOne.FirstOrDefault()?.Name);
+    var pray = EmojiSearch.Rank(EmojiCatalog.All, "pray", 0, [], [], null);
+    Check("pray favours folded hands", pray.Count > 0 && pray[0].Glyph == "🙏", pray.FirstOrDefault()?.Name);
+    var pins = EmojiPinOrder.Toggle([], "🔥");
+    pins = EmojiPinOrder.Toggle(pins, "🚀");
+    pins = EmojiPinOrder.Move(pins, "🚀", -1);
+    Check("new pin appends and can move up", pins.Count == 2 && pins[0] == "🚀" && pins[1] == "🔥");
+    var frequent = FrequentEmoji.Record(FrequentEmoji.Record([], "😀"), "😂");
+    Check("frequent puts latest first", frequent[0] == "😂" && frequent[1] == "😀");
+    var overview = EmojiCatalog.Search("", 0, ["👍"], ["🔥"]);
+    Check("overview leads with pins then frequent", overview.Count > 2 && overview[0].Glyph == "👍" && overview[1].Glyph == "🔥");
+    Check("emoji zoom in removes a column", EmojiGridGeometry.ZoomIn(8) == 7);
+    Check("emoji actual size clamp", EmojiGridGeometry.ClampColumns(99) == 10);
+    Check("digit 0 is the tenth favorite slot", PaletteDigit.SlotIndex(0) == 9 && PaletteDigit.SlotIndex(1) == 0);
+    Check("compact strip keeps five", CompactFavorites.Strip(["a", "b", "c", "d", "e", "f"]).Count == 5 && CompactFavorites.ShowsOverflow(6));
+}
+
+{
+    var dir = Path.Combine(Path.GetTempPath(), "tinycast-fav-" + Guid.NewGuid().ToString("n"));
+    Directory.CreateDirectory(dir);
+    try
+    {
+        var path = Path.Combine(dir, "favorites.json");
+        File.WriteAllText(path, """{"app:one":true,"app:two":false,"app:three":true}""");
+        var store = new FavoritesStore(path);
+        Check("favorites migrate dict order", store.OrderedIds().SequenceEqual(new[] { "app:one", "app:three" }));
+        store.Toggle("app:two");
+        Check("toggle appends", store.OrderedIds()[^1] == "app:two");
+        Check("move up swaps", store.Move("app:two", -1) && store.At(1) == "app:two");
+        Check("slot 0 is first favorite", store.At(PaletteDigit.SlotIndex(1)) == "app:one");
+        var reloaded = new FavoritesStore(path);
+        Check("favorites persist as a list", reloaded.OrderedIds().Count == 3 && reloaded.IsFavorite("app:two"));
+    }
+    finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+}
+
+{
+    var home = @"C:\Users\demo";
+    var empty = FileSearchPolicy.Resolve([], [], home, _ => [@"C:\Users\demo\Documents"]);
+    Check("empty file-search scopes search nothing", empty.Roots.Count == 0);
+    var expanded = FileSearchPolicy.Resolve(["~"], ["*.tmp"], home, h => [h + @"\Desktop", h + @"\Documents"]);
+    Check("home scope expands to children", expanded.Roots.Count == 2 && expanded.Roots[0].EndsWith("Desktop"));
+    Check("shipped ignore still compiled in", expanded.Ignore.Excludes(@"C:\src\node_modules\x"));
+    Check("aqs joins filename terms", FileSearchAqs.FileNameClause("annual report") == "filename:\"annual\" AND filename:\"report\"");
+    Check("file search command hidden when off", !CommandAvailability.InLauncher(BuiltinCommands.FileSearch, new AppSettings()));
+    Check("file search shortcut no-ops when off", !CommandAvailability.CanRun(BuiltinCommands.FileSearch, new AppSettings()));
+}
+
+{
+    var file = new MenuSearchItem("File → Export As", "Ctrl+Shift+E", 1, 0, "Export As", "File");
+    var edit = new MenuSearchItem("Edit → Copy", "Ctrl+C", 2, 0, "Copy", "Edit");
+    var hidden = new MenuSearchItem("View → Hidden", "", 3, 0, "Hidden", "View", Enabled: false);
+    var ranked = MenuSearchQuery.Filter([file, edit, hidden], "export");
+    Check("menu search ranks the leaf title", ranked.Count == 1 && ranked[0].LeafTitle == "Export As");
+    Check("disabled menu rows are ineligible", !hidden.IsEligible);
+    Check("self target is classified before menu-less",
+        MenuSearchTarget.Classify(@"C:\Tinycast.exe", @"C:\Tinycast.exe", []) == MenuSearchTargetKind.SelfTarget);
+    Check("excluded app is refused",
+        MenuSearchTarget.Classify(@"C:\Apps\Slack.exe", @"C:\Tinycast.exe", ["Slack"]) == MenuSearchTargetKind.Excluded);
+    var flattened = MenuSnapshotPolicy.Flatten([
+        new MenuSearchItem("Apple → About", "", 1, 0, "About", "Apple"),
+        new MenuSearchItem("File → New", "", 2, 0, "New", "File"),
+    ], dropFirstTopLevel: true);
+    Check("apple menu dropped by first section", flattened.Count == 1 && flattened[0].Section == "File");
+}
+
+{
+    var box = new RectD(100, 50, 1000, 800);
+    var described = WindowLayoutGeometry.Describe(new RectD(100, 50, 500, 400), box, "notepad", @"C:\Windows\notepad.exe", "DISPLAY1");
+    var resolved = WindowLayoutGeometry.Resolve(described, box);
+    Check("layout describe/resolve round-trips a top-left half",
+        resolved.X == 100 && resolved.Y == 50 && resolved.Width == 500 && resolved.Height == 400,
+        resolved.ToString());
+    var center = WindowLayoutGeometry.Describe(new RectD(350, 250, 500, 400), box, "code", null, "DISPLAY1");
+    Check("centered residual stays exact",
+        Math.Abs(WindowLayoutGeometry.Resolve(center, box).X - 350) < 0.6);
+    Check("absent display is skipped", WindowLayoutGeometry.MatchDisplay("missing", 99, [new WindowLayoutDisplay("DISPLAY1", box)]) is null);
+    var old = new WindowLayoutSlot("notepad", new RectD(10, 10, 200, 100), 0);
+    Check("legacy slots keep their stored frame",
+        WindowLayoutGeometry.ResolveSlot(old, box).Width == 200);
+    var windows = new (string ProcessName, string? Path, RectD Frame, int Index)[]
+    {
+        ("notepad", @"C:\Windows\notepad.exe", new RectD(100, 50, 500, 400), 0),
+        ("notepad", @"C:\Windows\notepad.exe", new RectD(900, 400, 200, 100), 1),
+    };
+    var nearest = WindowLayoutGeometry.NearestWindowIndex(described, resolved, windows, new HashSet<int>());
+    Check("layout binds the nearest centre", nearest == 0);
+}
+
+{
+    var identity = new UninstallIdentity("Tinycast", "com.tinycast.windows", ["com.tinycast.windows.dev"]);
+    Check("name match is exact", UninstallRules.MatchesName("Tinycast", identity) && !UninstallRules.MatchesName("Tinycast leftovers", identity));
+    Check("vendor sibling is not claimed", !UninstallRules.MatchesBundleId("com.tinycast.windows.dev.plist", identity));
+    var locked = new UninstallCandidate(@"C:\Windows\notepad.exe", "Notepad", "Install", UninstallProtection.SystemProtected, "system");
+    var loose = new UninstallCandidate(@"C:\Apps\Foo", "Foo", "Folder", UninstallProtection.Removable, "name", 12);
+    var selection = new UninstallSelection();
+    selection.SelectAll([locked, loose]);
+    Check("locked leftover cannot be checked", !selection.Contains(locked.Path) && selection.Contains(loose.Path));
+    Check("tinycast refuses its own uninstall", UninstallPlanLogic.IsSelf(identity, "com.tinycast.windows", @"C:\Tinycast"));
+}
+
+{
+    var positional = ShellCommandSpec.NeverSplicedArguments("echo %1 & del C:\\", ["hello; rm -rf"]);
+    Check("custom command args are positional", positional.Count == 1 && positional[0] == "hello; rm -rf");
+    Check("missing working directory fails closed", ShellCommandSpec.ResolvedWorkingDirectory(@"C:\missing-tinycast-dir", "C:\\") is null);
+    var imported = RaycastScriptImport.Parse(@"C:\scripts\hi.sh", """
+        #!/bin/bash
+        # @raycast.title Say Hi
+        # @raycast.mode fullOutput
+        # @raycast.needsConfirmation true
+        # @raycast.argument1 { "type": "text", "placeholder": "Name" }
+        echo hi
+        """);
+    Check("raycast script import maps title and output",
+        imported is { Name: "Say Hi", ShowOutput: true, Confirm: true } && imported.Parameters.Count == 1);
+    Check("raycast helper without title is skipped", RaycastScriptImport.Parse(@"C:\scripts\lib.sh", "#!/bin/bash\necho\n") is null);
+    var session = new ArgumentSession("custom:1", "command", [new ArgumentPrompt("Name"), new ArgumentPrompt("Note", false)]);
+    Check("required argument holds enter", !session.Submit(""));
+    Check("argument form advances", session.Submit("Ada") && session.Current?.Name == "Note");
+    Check("optional argument occupies its slot", session.Submit("") && session.IsComplete && session.Values[1] == "");
+    Check("quit is not bindable", !CommandAvailability.IsBindable(BuiltinCommands.Quit));
+}
+
+{
+    var ctx = new ExpansionContext
+    {
+        ClipboardHistory = ["one", "two"],
+        Selection = "  Hello ",
+        Now = new DateTime(2026, 9, 17, 15, 4, 0),
+        MakeUuid = () => "uuid-1",
+    };
+    Check("snippet query alias is argument",
+        SnippetTemplateEngine.DeclaredArguments("{query}").Count == 1);
+    Check("snippet clipboard offset",
+        SnippetTemplateEngine.Expand("{clipboard offset=1}", ctx).Text == "two");
+    Check("snippet modifier pipeline",
+        SnippetTemplateEngine.Expand("{selection | trim | uppercase}", ctx).Text == "HELLO");
+    Check("snippet unknown token stays",
+        SnippetTemplateEngine.Expand("{browser-tab}", ctx).Text == "{browser-tab}");
+    var nested = SnippetTemplateEngine.Expand("{snippet:Inner}", ctx, snippets:
+        [new StoredSnippet("Inner", "Inner", "in", "X{cursor}Y")]);
+    Check("snippet cursor from nested reference", nested.CursorOffsetFromEnd == 1);
+    var md = SnippetFrontmatter.Parse("sig.md", "---\nname: Sign-off\nkeyword: sig\nenabled: false\nshow_confirmation: true\n---\nHi\n");
+    Check("snippet frontmatter flags", md is { Enabled: false, ShowConfirmation: true });
+}
 
 Console.WriteLine();
 Console.WriteLine(failed == 0 ? $"All {passed} checks passed." : $"{failed} failed, {passed} passed.");

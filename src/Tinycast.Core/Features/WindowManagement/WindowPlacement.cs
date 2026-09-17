@@ -452,5 +452,3 @@ public sealed class WindowActionMemory
     }
 }
 
-public sealed record WindowLayout(string Id, string Name, IReadOnlyList<WindowLayoutSlot> Slots);
-public sealed record WindowLayoutSlot(string ProcessName, RectD Frame, int ScreenId, string? Path = null);

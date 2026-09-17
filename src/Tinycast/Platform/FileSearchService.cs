@@ -88,10 +88,14 @@ internal static class FileSearchService
 
     public static IReadOnlyList<FileSearchResult> Recents(IEnumerable<string> scopes, FileSearchIgnoreList ignore, FileSearchFilter filter)
     {
+        var roots = scopes.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (WindowsSearch.TryRecents(roots, ignore, filter, out var indexed))
+            return indexed;
+
         var cutoffChanged = DateTime.Now.AddDays(-3);
         var cutoffUsed = DateTime.Now.AddDays(-30);
         var found = new List<FileSearchResult>();
-        foreach (var root in scopes.Distinct(StringComparer.OrdinalIgnoreCase).Take(8))
+        foreach (var root in roots.Take(8))
         {
             if (!Directory.Exists(root))
                 continue;
@@ -113,8 +117,12 @@ internal static class FileSearchService
         FileSearchFilter filter,
         CancellationToken token = default)
     {
+        var scoped = roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (WindowsSearch.TrySearch(query, scoped, ignore, filter, FileSearchQuery.HardCap, out var indexed))
+            return FileSearchQuery.Rank(indexed, query, ignore, filter);
+
         var results = new List<FileSearchResult>();
-        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var root in scoped)
         {
             if (token.IsCancellationRequested)
                 break;

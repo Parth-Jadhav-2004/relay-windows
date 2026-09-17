@@ -451,17 +451,21 @@ internal static class WindowInventory
 
     public static IReadOnlyList<ScreenSpec> Screens()
     {
-        var screens = new List<ScreenSpec>();
-        var id = 0;
+        return Displays().Select((d, i) => new ScreenSpec(i, d.VisibleFrame, d.VisibleFrame)).ToList();
+    }
+
+    public static IReadOnlyList<WindowLayoutDisplay> Displays()
+    {
+        var screens = new List<WindowLayoutDisplay>();
         NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdc, ref NativeMethods.Rect rect, IntPtr data) =>
         {
-            var info = new NativeMethods.MonitorInfo { Size = Marshal.SizeOf<NativeMethods.MonitorInfo>() };
-            if (NativeMethods.GetMonitorInfo(hMonitor, ref info))
+            var info = new NativeMethods.MonitorInfoEx { Size = Marshal.SizeOf<NativeMethods.MonitorInfoEx>() };
+            if (NativeMethods.GetMonitorInfoEx(hMonitor, ref info))
             {
-                screens.Add(new ScreenSpec(
-                    id++,
-                    new RectD(info.Monitor.Left, info.Monitor.Top, info.Monitor.Width, info.Monitor.Height),
-                    new RectD(info.Work.Left, info.Work.Top, info.Work.Width, info.Work.Height)));
+                var visible = new RectD(info.Work.Left, info.Work.Top, info.Work.Width, info.Work.Height);
+                screens.Add(new WindowLayoutDisplay(
+                    string.IsNullOrWhiteSpace(info.DeviceName) ? screens.Count.ToString() : info.DeviceName,
+                    visible));
             }
 
             return true;

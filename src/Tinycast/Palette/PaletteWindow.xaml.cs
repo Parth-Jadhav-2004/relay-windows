@@ -153,6 +153,10 @@ public sealed partial class PaletteWindow : Window
         {
             PaletteMode.FileSearch => _core.FileSearchCoordinator.Placeholder,
             PaletteMode.Clipboard => "Type to filter entries...",
+            PaletteMode.CommandArguments => _core.Arguments?.Placeholder ?? "Argument",
+            PaletteMode.Uninstall => "App name",
+            PaletteMode.MenuSearch => "Filter menu items",
+            PaletteMode.Emoji => "Search emoji",
             _ => "Search",
         };
         var browsing = _core.Palette.Mode == PaletteMode.FileSearch && _core.FileSearchCoordinator.IsBrowsing;
@@ -174,6 +178,10 @@ public sealed partial class PaletteWindow : Window
         {
             PaletteMode.FileSearch => "Ctrl+P  " + _core.FileSearchCoordinator.Filter.Title(),
             PaletteMode.Clipboard => "Ctrl+P  " + ClipboardListFilterLogic.Label(_core.ClipboardCoordinator.Filter),
+            PaletteMode.Emoji => "Ctrl+G  " + (_core.EmojiGroup ?? "All") + "  ·  " + _core.EmojiColumns + " cols",
+            PaletteMode.Uninstall => "Space  check  ·  Enter  Recycle",
+            PaletteMode.CommandArguments => "Enter  next argument",
+            PaletteMode.MenuSearch => "Frozen to the app that was frontmost",
             _ => PaletteTabRing.Hint(_core.Palette.Mode, _core.Settings.ClipboardEnabled, _core.Settings.AiEnabled),
         };
         TabHint.Visibility = Visibility.Visible;
@@ -243,7 +251,7 @@ public sealed partial class PaletteWindow : Window
 
     void RenderEmojiGrid(bool dark)
     {
-        var columns = Math.Clamp(_core.Settings.EmojiColumns, 6, 10);
+        var columns = _core.EmojiColumns;
         var selected = PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count);
         StackPanel? line = null;
         for (var i = 0; i < _rows.Count; i++)
@@ -470,9 +478,24 @@ public sealed partial class PaletteWindow : Window
             MinHeight = row.IsCard ? 64 : 0,
             Tag = row.Id,
         };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Theme.Size.RowIcon) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        if (row.Checked is { } isChecked)
+        {
+            var box = new FontIcon
+            {
+                Glyph = isChecked ? "\uE73A" : "\uE739",
+                FontSize = 16,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = ThemeBrushes.InkBrush(Theme.Colors.TextPrimary.For(dark), dark),
+                Margin = new Thickness(0, 0, Theme.Spacing.Sm, 0),
+            };
+            Grid.SetColumn(box, 0);
+            root.Children.Add(box);
+        }
 
         var icon = new Border
         {
@@ -520,7 +543,7 @@ public sealed partial class PaletteWindow : Window
                 Foreground = ThemeBrushes.InkBrush(Theme.Colors.TextPrimary.For(dark), dark),
             };
         }
-        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(icon, 1);
 
         var text = new StackPanel { Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock
@@ -542,7 +565,7 @@ public sealed partial class PaletteWindow : Window
                 Foreground = ThemeBrushes.InkBrush(Theme.Colors.TextTertiary.For(dark), dark),
             });
         }
-        Grid.SetColumn(text, 1);
+        Grid.SetColumn(text, 2);
 
         var copy = row.CopyText is not null;
         var key = new Border
@@ -557,17 +580,19 @@ public sealed partial class PaletteWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Child = new TextBlock
             {
-                Text = copy ? "Copy" : "↵",
+                Text = !string.IsNullOrWhiteSpace(row.Accessory)
+                    ? row.Accessory
+                    : copy ? "Copy" : "↵",
                 FontSize = 11,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = ThemeBrushes.InkBrush(Theme.Colors.TextSecondary.For(dark), dark),
             },
-            Visibility = selected && _core.Palette.Mode != PaletteMode.Clipboard
+            Visibility = !string.IsNullOrWhiteSpace(row.Accessory) || (selected && _core.Palette.Mode != PaletteMode.Clipboard)
                 ? Visibility.Visible
                 : Visibility.Collapsed,
         };
-        Grid.SetColumn(key, 2);
+        Grid.SetColumn(key, 3);
 
         root.Children.Add(icon);
         root.Children.Add(text);
@@ -587,6 +612,13 @@ public sealed partial class PaletteWindow : Window
                     _core.Palette.Notify();
                 }
 
+                e.Handled = true;
+                return;
+            }
+
+            if (_core.Palette.Mode == PaletteMode.Uninstall)
+            {
+                _core.LauncherCoordinator.ToggleUninstall(row.Id);
                 e.Handled = true;
                 return;
             }
@@ -615,6 +647,19 @@ public sealed partial class PaletteWindow : Window
 
         if (e.Key == VirtualKey.Enter)
         {
+            if (_core.Palette.Mode == PaletteMode.CommandArguments)
+            {
+                _core.SubmitArguments(QueryBox.Text);
+                e.Handled = true;
+                return;
+            }
+
+            if (_core.Palette.Mode == PaletteMode.Uninstall && _rows.Count > 0)
+            {
+                ActivateSelection();
+                e.Handled = true;
+                return;
+            }
             if (NativeMethods.IsKeyDown(NativeMethods.VkShift)
                 && NativeMethods.IsKeyDown(NativeMethods.VkControl)
                 && _rows.Count > 0)
@@ -643,7 +688,7 @@ public sealed partial class PaletteWindow : Window
         if (e.Key == VirtualKey.Down)
         {
             MoveSelection(_core.Palette.Mode == PaletteMode.Emoji
-                ? Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
+                ? _core.EmojiColumns
                 : 1);
             e.Handled = true;
             return;
@@ -659,8 +704,61 @@ public sealed partial class PaletteWindow : Window
             }
 
             MoveSelection(_core.Palette.Mode == PaletteMode.Emoji
-                ? -Math.Clamp(_core.Settings.EmojiColumns, 6, 10)
+                ? -_core.EmojiColumns
                 : -1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.Left && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            MoveSelection(-1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.Right && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            MoveSelection(1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.G && NativeMethods.IsKeyDown(NativeMethods.VkControl) && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            var groups = EmojiCatalog.Groups;
+            var current = _core.EmojiGroup is null ? -1 : groups.ToList().FindIndex(g => g == _core.EmojiGroup);
+            var next = current + 1;
+            _core.EmojiGroup = next >= groups.Count ? null : groups[next];
+            _core.Palette.Selection = 0;
+            _core.Palette.Notify();
+            e.Handled = true;
+            return;
+        }
+
+        if ((e.Key == VirtualKey.Add || e.Key == (VirtualKey)0xBB) && NativeMethods.IsKeyDown(NativeMethods.VkControl)
+            && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            _core.EmojiColumnsOverride = EmojiGridGeometry.ZoomIn(_core.EmojiColumns);
+            _core.Palette.Notify();
+            e.Handled = true;
+            return;
+        }
+
+        if ((e.Key == VirtualKey.Subtract || e.Key == (VirtualKey)0xBD) && NativeMethods.IsKeyDown(NativeMethods.VkControl)
+            && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            _core.EmojiColumnsOverride = EmojiGridGeometry.ZoomOut(_core.EmojiColumns);
+            _core.Palette.Notify();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.Number0 && NativeMethods.IsKeyDown(NativeMethods.VkControl)
+            && _core.Palette.Mode == PaletteMode.Emoji)
+        {
+            _core.EmojiColumnsOverride = null;
+            _core.Palette.Notify();
             e.Handled = true;
             return;
         }
@@ -694,6 +792,16 @@ public sealed partial class PaletteWindow : Window
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (e.Key == VirtualKey.P && NativeMethods.IsKeyDown(NativeMethods.VkControl) && _core.Palette.Mode == PaletteMode.Emoji
+            && _rows.Count > 0)
+        {
+            var row = _rows[PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count)];
+            if (row.Id.StartsWith("emoji:", StringComparison.Ordinal))
+                _core.ToggleEmojiPin(row.Id[6..]);
+            e.Handled = true;
+            return;
         }
 
         if (e.Key == VirtualKey.P && NativeMethods.IsKeyDown(NativeMethods.VkControl) && _core.Palette.Mode == PaletteMode.FileSearch)
@@ -732,27 +840,33 @@ public sealed partial class PaletteWindow : Window
             return;
         }
 
-        if (!NativeMethods.IsKeyDown(NativeMethods.VkControl)
-            && !NativeMethods.IsKeyDown(NativeMethods.VkMenu)
+        if (PaletteDigit.ActivatesSlot(
+                _core.Palette.Query,
+                NativeMethods.IsKeyDown(NativeMethods.VkControl),
+                NativeMethods.IsKeyDown(NativeMethods.VkMenu))
             && DigitIndex(e.Key) is { } digit)
         {
             if (_core.Palette.Mode == PaletteMode.Clipboard && string.IsNullOrEmpty(_core.Palette.Query))
             {
-                if (_core.ClipboardCoordinator.ActivatePinned(digit - 1))
+                if (_core.ClipboardCoordinator.ActivatePinned(PaletteDigit.SlotIndex(digit)))
                     e.Handled = true;
                 return;
             }
 
-            if (_core.Palette.Mode is PaletteMode.Launcher or PaletteMode.Emoji
-                && string.IsNullOrEmpty(_core.Palette.Query)
-                && _rows.Count > 0)
+            if (_core.Palette.Mode == PaletteMode.Launcher)
             {
-                var index = Math.Min(digit - 1, _rows.Count - 1);
-                _core.Palette.Selection = index;
-                ActivateSelection();
-                e.Handled = true;
+                if (_core.LauncherCoordinator.ActivateFavoriteSlot(digit))
+                    e.Handled = true;
                 return;
             }
+        }
+
+        if (e.Key == VirtualKey.Space && _core.Palette.Mode == PaletteMode.Uninstall && _rows.Count > 0)
+        {
+            var row = _rows[PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count)];
+            _core.LauncherCoordinator.ToggleUninstall(row.Id);
+            e.Handled = true;
+            return;
         }
 
         if (e.Key == VirtualKey.Delete && _core.Palette.Mode == PaletteMode.FileSearch && _rows.Count > 0)
@@ -816,6 +930,12 @@ public sealed partial class PaletteWindow : Window
         if (_rows.Count == 0)
             return;
         var index = PaletteRowIndex.Clamp(_core.Palette.Selection, _rows.Count);
+        if (_core.Palette.Mode == PaletteMode.Uninstall)
+        {
+            _core.LauncherCoordinator.Activate("uninstall:apply");
+            return;
+        }
+
         _core.LauncherCoordinator.Activate(_rows[index].Id, reveal);
     }
 
@@ -836,12 +956,15 @@ public sealed partial class PaletteWindow : Window
         VirtualKey.Number7 or VirtualKey.NumberPad7 => 7,
         VirtualKey.Number8 or VirtualKey.NumberPad8 => 8,
         VirtualKey.Number9 or VirtualKey.NumberPad9 => 9,
+        VirtualKey.Number0 or VirtualKey.NumberPad0 => 0,
         _ => null,
     };
 
     void OnBackClick(object sender, RoutedEventArgs e)
     {
         if (_core.Palette.Mode == PaletteMode.FileSearch && _core.FileSearchCoordinator.Pop())
+            return;
+        if (_core.Palette.Mode == PaletteMode.CommandArguments && _core.BackArguments())
             return;
         _core.Palette.Pop();
     }
@@ -917,6 +1040,13 @@ public sealed partial class PaletteWindow : Window
                 _core.PaletteCoordinator.ShowPalette(PaletteMode.Uninstall, seeding: app.Title));
         }
 
+        if (_core.Palette.Mode == PaletteMode.Emoji && row.Id.StartsWith("emoji:", StringComparison.Ordinal))
+        {
+            var pin = new MenuFlyoutItem { Text = _core.EmojiPins.Contains(row.Id[6..]) ? "Unpin" : "Pin" };
+            pin.Click += (_, _) => _core.ToggleEmojiPin(row.Id[6..]);
+            ActionsFlyout.Items.Add(pin);
+        }
+
         void AddAppAction(string title, Action action)
         {
             var item = new MenuFlyoutItem { Text = title };
@@ -989,6 +1119,7 @@ public sealed partial class PaletteWindow : Window
                     _ => row.Kind == AppEntryKind.Application ? "Open" : "Open",
                 });
         ActionsButton.Visibility = row.ShowActions || row.Kind == AppEntryKind.Application
+            || _core.Palette.Mode == PaletteMode.Emoji
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

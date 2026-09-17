@@ -26,10 +26,11 @@ public static class EmojiSkin
     public static bool CanTint(string glyph)
     {
         var stripped = Strip(glyph);
-        return stripped is "👍" or "👎" or "👏" or "🙏" or "👋" or "👌" or "✌️" or "🤞" or "💪";
+        return EmojiCatalog.Find(stripped)?.CanTint == true
+               || stripped is "👍" or "👎" or "👏" or "🙏" or "👋" or "👌" or "✌️" or "🤞" or "💪";
     }
 
-    static string Strip(string glyph)
+    public static string Strip(string glyph)
     {
         var value = glyph;
         foreach (var modifier in Modifiers)

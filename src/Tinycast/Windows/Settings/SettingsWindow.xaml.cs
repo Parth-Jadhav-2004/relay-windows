@@ -26,6 +26,7 @@ public sealed partial class SettingsWindow : Window
     string? _selectedAppId;
     string? _selectedSnippetId;
     string? _selectedLayoutId;
+    string? _selectedCustomId;
 
     public SettingsWindow(AppCore core)
     {
@@ -163,12 +164,15 @@ public sealed partial class SettingsWindow : Window
         PopToRootBox.Value = _core.Settings.PalettePopToRootSeconds;
         ClipboardSwitch.IsOn = _core.Settings.ClipboardEnabled;
         WindowSwitch.IsOn = _core.Settings.WindowManagementEnabled;
+        LayoutsShowSwitch.IsOn = _core.Settings.WindowLayoutsShowInLauncher;
         FileSearchSwitch.IsOn = _core.Settings.FileSearchEnabled;
         NotesSwitch.IsOn = _core.Settings.NotesEnabled;
         QuicklinksSwitch.IsOn = _core.Settings.QuicklinksEnabled;
         CustomSwitch.IsOn = _core.Settings.CustomCommandsEnabled;
+        CustomShowSwitch.IsOn = _core.Settings.CustomCommandsShowInLauncher;
         NavSwitch.IsOn = _core.Settings.NavigationEnabled;
         SnippetsSwitch.IsOn = _core.Settings.SnippetsEnabled;
+        SnippetsShowSwitch.IsOn = _core.Settings.SnippetsShowInLauncher;
         AiSwitch.IsOn = _core.Settings.AiEnabled;
         CalendarSwitch.IsOn = _core.Settings.CalendarEnabled;
         AutoJoinSwitch.IsOn = _core.Settings.AutoJoinMeetings;
@@ -203,13 +207,15 @@ public sealed partial class SettingsWindow : Window
         OpenCodeModelBox.Text = _core.AiCoordinator.SelectedModel;
         OpenCodeStatus.Text = _core.AiCoordinator.Status;
         HotKeyCommandBox.Items.Clear();
-        foreach (var id in BindableCommands)
+        foreach (var id in BindableCommands())
             HotKeyCommandBox.Items.Add(id);
         HotKeyCommandBox.SelectedIndex = 0;
         DoubleTapBox.SelectedIndex = 0;
         SystemSettingsList.ItemsSource = MsSettingsCatalog.All.Select(s => s.Title).ToList();
         SystemActionsList.ItemsSource = SystemActionCatalog.All.Select(a => a.Name).ToList();
         BindCustomCommands();
+        CmdEnabledSwitch.IsOn = true;
+        CmdConfirmSwitch.IsOn = true;
         BindQuicklinks();
         RefreshHotKeys();
         RefreshAboutUpdates();
@@ -226,25 +232,44 @@ public sealed partial class SettingsWindow : Window
         UpdatesButton.IsEnabled = !_core.UpdatesBusy;
     }
 
-    static readonly string[] BindableCommands =
-    [
-        BuiltinCommands.TogglePalette,
-        BuiltinCommands.Settings,
-        BuiltinCommands.Clipboard,
-        BuiltinCommands.Emoji,
-        BuiltinCommands.FileSearch,
-        BuiltinCommands.Notes,
-        BuiltinCommands.Snippets,
-        BuiltinCommands.Quicklinks,
-        BuiltinCommands.SwitchWindows,
-        BuiltinCommands.MenuSearch,
-        BuiltinCommands.AiChat,
-        BuiltinCommands.Schedule,
-        BuiltinCommands.Camera,
-        BuiltinCommands.JoinNext,
-        BuiltinCommands.CreateEvent,
-        BuiltinCommands.Quit,
-    ];
+    IReadOnlyList<string> BindableCommands()
+    {
+        var ids = new List<string>
+        {
+            BuiltinCommands.TogglePalette,
+            BuiltinCommands.Settings,
+            BuiltinCommands.Clipboard,
+            BuiltinCommands.Emoji,
+            BuiltinCommands.FileSearch,
+            BuiltinCommands.Notes,
+            BuiltinCommands.SearchNotes,
+            BuiltinCommands.RevealNotes,
+            BuiltinCommands.CalculatorHistory,
+            BuiltinCommands.Snippets,
+            BuiltinCommands.Quicklinks,
+            BuiltinCommands.SwitchWindows,
+            BuiltinCommands.MenuSearch,
+            BuiltinCommands.Uninstall,
+            BuiltinCommands.Support,
+            BuiltinCommands.Backup,
+            BuiltinCommands.Updates,
+            BuiltinCommands.Camera,
+            BuiltinCommands.AiChat,
+            BuiltinCommands.Schedule,
+            BuiltinCommands.SaveLayout,
+            BuiltinCommands.CreateLayout,
+            BuiltinCommands.JoinNext,
+            BuiltinCommands.CreateEvent,
+            BuiltinCommands.CopyMeetingLink,
+            BuiltinCommands.OpenCalendar,
+        };
+        ids.AddRange(WindowCommandCatalog.All.Select(c => c.EntryId));
+        ids.AddRange(SystemActionCatalog.All.Select(a => a.EntryId));
+        ids.AddRange(_core.CustomCommands.Select(c => c.Id));
+        ids.AddRange(_core.Layouts.Select(l => "layout:" + l.Id));
+        ids.AddRange(_core.Quicklinks.Select(q => q.Id));
+        return ids.Where(CommandAvailability.IsBindable).ToList();
+    }
 
     void BindApplications()
     {
@@ -341,11 +366,6 @@ public sealed partial class SettingsWindow : Window
         FallbacksList.SelectedIndex = next;
     }
 
-    void BindCustomCommands()
-    {
-        CustomCommandsList.ItemsSource = _core.CustomCommands.Select(c => c.Name + "  ·  " + c.FileName).ToList();
-    }
-
     void BindQuicklinks()
     {
         QuicklinksList.ItemsSource = _core.Quicklinks.Select(q => q.Name + "  ·  " + q.Destination).ToList();
@@ -373,6 +393,8 @@ public sealed partial class SettingsWindow : Window
         SnippetNameBox.Text = snippet.Name;
         SnippetKeywordBox.Text = snippet.Keyword;
         SnippetTextBox.Text = snippet.Text;
+        SnippetEnabledSwitch.IsOn = snippet.Enabled;
+        SnippetConfirmSwitch.IsOn = snippet.ShowConfirmation;
     }
 
     void OnSaveSnippet(object sender, RoutedEventArgs e)
@@ -388,7 +410,9 @@ public sealed partial class SettingsWindow : Window
                     _selectedSnippetId,
                     SnippetNameBox.Text.Trim(),
                     SnippetKeywordBox.Text.Trim(),
-                    SnippetTextBox.Text);
+                    SnippetTextBox.Text,
+                    SnippetEnabledSwitch.IsOn,
+                    SnippetConfirmSwitch.IsOn);
                 _core.PersistSnippets();
                 BindSnippets();
                 _core.ShowMessage("Snippet saved");
@@ -400,7 +424,9 @@ public sealed partial class SettingsWindow : Window
             "snippet:" + Guid.NewGuid().ToString("n"),
             SnippetNameBox.Text.Trim(),
             SnippetKeywordBox.Text.Trim(),
-            SnippetTextBox.Text);
+            SnippetTextBox.Text,
+            SnippetEnabledSwitch.IsOn,
+            SnippetConfirmSwitch.IsOn);
         _core.Snippets.Add(created);
         _selectedSnippetId = created.Id;
         _core.PersistSnippets();
@@ -438,6 +464,18 @@ public sealed partial class SettingsWindow : Window
         LayoutSlotsBox.Text = string.Join(Environment.NewLine, layout.Slots.Select(s =>
             s.ProcessName + "  " + (int)s.Frame.X + "  " + (int)s.Frame.Y + "  " + (int)s.Frame.Width + "  " + (int)s.Frame.Height
             + (string.IsNullOrWhiteSpace(s.Path) ? "" : "  " + s.Path)));
+        var first = layout.Slots.FirstOrDefault();
+        if (first is not null)
+        {
+            LayoutWidthBox.Value = first.WidthFraction > 0 ? first.WidthFraction : 0.5;
+            LayoutHeightBox.Value = first.HeightFraction > 0 ? first.HeightFraction : 0.5;
+            var spell = string.IsNullOrWhiteSpace(first.Anchor) ? "center" : first.Anchor;
+            for (var i = 0; i < LayoutAnchorBox.Items.Count; i++)
+            {
+                if (LayoutAnchorBox.Items[i] is ComboBoxItem item && (item.Tag?.ToString() ?? "") == spell)
+                    LayoutAnchorBox.SelectedIndex = i;
+            }
+        }
     }
 
     void OnCaptureLayout(object sender, RoutedEventArgs e)
@@ -455,30 +493,54 @@ public sealed partial class SettingsWindow : Window
         var index = _core.Layouts.FindIndex(l => l.Id == _selectedLayoutId);
         if (index < 0)
             return;
+        var existing = _core.Layouts[index];
+        var displays = WindowInventory.Displays();
+        var anchor = WindowLayoutGeometry.ParseAnchor((LayoutAnchorBox.SelectedItem as ComboBoxItem)?.Tag?.ToString());
+        var widthFrac = LayoutWidthBox.Value is double wFrac && wFrac > 0 ? wFrac : 0;
+        var heightFrac = LayoutHeightBox.Value is double hFrac && hFrac > 0 ? hFrac : 0;
         var slots = new List<WindowLayoutSlot>();
         foreach (var line in LayoutSlotsBox.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 5)
                 continue;
-            if (!double.TryParse(parts[^4], out var x) || !double.TryParse(parts[^3], out var y)
-                || !double.TryParse(parts[^2], out var w) || !double.TryParse(parts[^1], out var h))
+            string? path = null;
+            double x, y, w, h;
+            string name;
+            if (parts.Length >= 6
+                && double.TryParse(parts[^5], out x) && double.TryParse(parts[^4], out y)
+                && double.TryParse(parts[^3], out w) && double.TryParse(parts[^2], out h))
             {
-                if (parts.Length < 6
-                    || !double.TryParse(parts[^5], out x) || !double.TryParse(parts[^4], out y)
-                    || !double.TryParse(parts[^3], out w) || !double.TryParse(parts[^2], out h))
-                    continue;
-                var nameWithPath = string.Join(' ', parts.Take(parts.Length - 5));
-                slots.Add(new WindowLayoutSlot(nameWithPath, new RectD(x, y, w, h), 0, parts[^1]));
+                path = parts[^1];
+                name = string.Join(' ', parts.Take(parts.Length - 5));
+            }
+            else if (double.TryParse(parts[^4], out x) && double.TryParse(parts[^3], out y)
+                     && double.TryParse(parts[^2], out w) && double.TryParse(parts[^1], out h))
+            {
+                name = string.Join(' ', parts.Take(parts.Length - 4));
+            }
+            else
+                continue;
+
+            var frame = new RectD(x, y, w, h);
+            var previous = existing.Slots.FirstOrDefault(s => s.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase));
+            var display = WindowLayoutGeometry.MatchDisplay(previous?.DisplayId ?? "", previous?.ScreenId ?? 0, displays)
+                          ?? displays.FirstOrDefault();
+            if (display is null)
+            {
+                slots.Add(new WindowLayoutSlot(name, frame, 0, path));
                 continue;
             }
 
-            var name = string.Join(' ', parts.Take(parts.Length - 4));
-            slots.Add(new WindowLayoutSlot(name, new RectD(x, y, w, h), 0));
+            var entry = WindowLayoutGeometry.Describe(frame, display.VisibleFrame, name, path ?? previous?.Path, display.Id, previous?.EntryId);
+            if (widthFrac > 0 && heightFrac > 0)
+                entry = entry with { WidthFraction = widthFrac, HeightFraction = heightFrac, Anchor = anchor };
+            var screen = Math.Max(0, displays.ToList().FindIndex(d => d.Id == display.Id));
+            slots.Add(WindowLayoutGeometry.SlotFromEntry(entry, WindowLayoutGeometry.Resolve(entry, display.VisibleFrame), screen));
         }
 
-        var nameText = string.IsNullOrWhiteSpace(LayoutNameBox.Text) ? _core.Layouts[index].Name : LayoutNameBox.Text.Trim();
-        _core.Layouts[index] = new WindowLayout(_selectedLayoutId, nameText, slots);
+        var nameText = string.IsNullOrWhiteSpace(LayoutNameBox.Text) ? existing.Name : LayoutNameBox.Text.Trim();
+        _core.Layouts[index] = new WindowLayout(_selectedLayoutId, nameText, slots, existing.FrontmostEntryId, existing.UsesPreferredGap);
         _core.PersistLayouts();
         BindLayouts();
         _core.ShowMessage("Layout saved");
@@ -567,12 +629,15 @@ public sealed partial class SettingsWindow : Window
             return;
         _core.Settings.ClipboardEnabled = ClipboardSwitch.IsOn;
         _core.Settings.WindowManagementEnabled = WindowSwitch.IsOn;
+        _core.Settings.WindowLayoutsShowInLauncher = LayoutsShowSwitch.IsOn;
         _core.Settings.FileSearchEnabled = FileSearchSwitch.IsOn;
         _core.Settings.NotesEnabled = NotesSwitch.IsOn;
         _core.Settings.QuicklinksEnabled = QuicklinksSwitch.IsOn;
         _core.Settings.CustomCommandsEnabled = CustomSwitch.IsOn;
+        _core.Settings.CustomCommandsShowInLauncher = CustomShowSwitch.IsOn;
         _core.Settings.NavigationEnabled = NavSwitch.IsOn;
         _core.Settings.SnippetsEnabled = SnippetsSwitch.IsOn;
+        _core.Settings.SnippetsShowInLauncher = SnippetsShowSwitch.IsOn;
         _core.Settings.AiEnabled = AiSwitch.IsOn;
         _core.Settings.CalendarEnabled = CalendarSwitch.IsOn;
         _core.Settings.AutoJoinMeetings = AutoJoinSwitch.IsOn;
@@ -681,19 +746,90 @@ public sealed partial class SettingsWindow : Window
         BindQuicklinks();
     }
 
+    void BindCustomCommands()
+    {
+        CustomCommandsList.ItemsSource = _core.CustomCommands.Select(c =>
+            (c.Enabled ? "" : "Off  ·  ") + c.Name + "  ·  " + c.FileName).ToList();
+    }
+
+    void OnCustomSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (CustomCommandsList.SelectedIndex < 0 || CustomCommandsList.SelectedIndex >= _core.CustomCommands.Count)
+        {
+            _selectedCustomId = null;
+            return;
+        }
+
+        var command = _core.CustomCommands[CustomCommandsList.SelectedIndex];
+        _selectedCustomId = command.Id;
+        CmdNameBox.Text = command.Name;
+        CmdFileBox.Text = command.FileName;
+        CmdArgsBox.Text = string.Join(' ', command.Arguments);
+        CmdCwdBox.Text = command.WorkingDirectory;
+        CmdParamsBox.Text = string.Join(Environment.NewLine, command.Parameters.Select(p => p.Name));
+        CmdEnabledSwitch.IsOn = command.Enabled;
+        CmdConfirmSwitch.IsOn = command.Confirm;
+        CmdOutputSwitch.IsOn = command.ShowOutput;
+        CmdEnvSwitch.IsOn = command.LoadEnvironment;
+        CmdHudSwitch.IsOn = command.ShowConfirmation;
+    }
+
     void OnAddCustom(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(CmdNameBox.Text) || string.IsNullOrWhiteSpace(CmdFileBox.Text))
             return;
-        _core.CustomCommands.Add(new CustomCommand(
-            "custom:" + Guid.NewGuid().ToString("n"),
-            CmdNameBox.Text.Trim(),
-            CmdFileBox.Text.Trim(),
-            SplitArgs(CmdArgsBox.Text),
-            true));
+        var parameters = SplitLines(CmdParamsBox.Text)
+            .Select(name => new CustomCommandParameter { Name = name, Required = true })
+            .ToList();
+        var command = _selectedCustomId is not null
+            ? _core.CustomCommands.FirstOrDefault(c => c.Id == _selectedCustomId)
+            : null;
+        if (command is null)
+        {
+            command = new CustomCommand { Id = "custom:" + Guid.NewGuid().ToString("n") };
+            _core.CustomCommands.Add(command);
+            _selectedCustomId = command.Id;
+        }
+
+        command.Name = CmdNameBox.Text.Trim();
+        command.FileName = CmdFileBox.Text.Trim();
+        command.Arguments = SplitArgs(CmdArgsBox.Text).ToList();
+        command.WorkingDirectory = CmdCwdBox.Text.Trim();
+        command.Parameters = parameters;
+        command.Enabled = CmdEnabledSwitch.IsOn;
+        command.Confirm = CmdConfirmSwitch.IsOn;
+        command.ShowOutput = CmdOutputSwitch.IsOn;
+        command.LoadEnvironment = CmdEnvSwitch.IsOn;
+        command.ShowConfirmation = CmdHudSwitch.IsOn;
         _core.PersistCustomCommands();
-        CmdNameBox.Text = CmdFileBox.Text = CmdArgsBox.Text = "";
         BindCustomCommands();
+        _core.ShowMessage("Command saved");
+    }
+
+    async void OnImportCommandScript(object sender, RoutedEventArgs e)
+    {
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        picker.FileTypeFilter.Add(".ps1");
+        picker.FileTypeFilter.Add(".cmd");
+        picker.FileTypeFilter.Add(".bat");
+        picker.FileTypeFilter.Add(".py");
+        picker.FileTypeFilter.Add(".js");
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowChrome.Hwnd(this));
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+            return;
+        var parsed = RaycastScriptImport.Parse(file.Path, await File.ReadAllTextAsync(file.Path));
+        if (parsed is null)
+        {
+            _core.ShowMessage("Need a shebang and @raycast.title header.", DialogTone.Neutral);
+            return;
+        }
+
+        _core.CustomCommands.Add(parsed);
+        _core.PersistCustomCommands();
+        BindCustomCommands();
+        _core.ShowMessage("Imported " + parsed.Name);
     }
 
     void OnRemoveCustom(object sender, RoutedEventArgs e)
@@ -701,7 +837,11 @@ public sealed partial class SettingsWindow : Window
         if (CustomCommandsList.SelectedIndex < 0 || CustomCommandsList.SelectedIndex >= _core.CustomCommands.Count)
             return;
         _core.CustomCommands.RemoveAt(CustomCommandsList.SelectedIndex);
+        _selectedCustomId = null;
+        var live = new HashSet<string>(BindableCommands(), StringComparer.OrdinalIgnoreCase);
+        _core.HotKeys.RemoveAll(b => !live.Contains(b.CommandId));
         _core.PersistCustomCommands();
+        _core.PersistHotKeys();
         BindCustomCommands();
     }
 

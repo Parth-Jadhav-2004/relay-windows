@@ -7,12 +7,14 @@ using Tinycast.Features.Calculator;
 using Tinycast.Features.Calendar;
 using Tinycast.Features.Clipboard;
 using Tinycast.Features.Commands;
+using Tinycast.Features.Emoji;
 using Tinycast.Features.HotKeys;
 using Tinycast.Features.Launcher;
 using Tinycast.Features.Quicklinks;
 using Tinycast.Features.Onboarding;
 using Tinycast.Features.Settings;
 using Tinycast.Features.Snippets;
+using Tinycast.Features.Uninstall;
 using Tinycast.Features.Updates;
 using Tinycast.Features.WindowManagement;
 using Tinycast.Palette;
@@ -54,6 +56,13 @@ public sealed class AppCore
     };
     public string LastCommandOutput { get; set; } = "";
     public StoredSnippet? PendingSnippet { get; set; }
+    public ArgumentSession? Arguments { get; private set; }
+    public List<string> EmojiPins { get; private set; } = [];
+    public List<string> EmojiFrequent { get; private set; } = [];
+    public string? EmojiGroup { get; set; }
+    public int? EmojiColumnsOverride { get; set; }
+    public UninstallSelection UninstallChecks { get; } = new();
+    public IReadOnlyList<UninstallCandidate> UninstallHits { get; set; } = [];
 
     public AppSettings Settings { get; private set; } = new();
     public PaletteState Palette { get; } = new();
@@ -62,6 +71,7 @@ public sealed class AppCore
     public SettingsCoordinator SettingsCoordinator { get; }
     public LauncherCoordinator LauncherCoordinator { get; }
     public FileSearchCoordinator FileSearchCoordinator { get; }
+    public MenuSearchCoordinator MenuSearchCoordinator { get; }
     public ClipboardCoordinator ClipboardCoordinator { get; }
     public AiCoordinator AiCoordinator { get; }
     public DialogPresenter Dialogs { get; }
@@ -103,6 +113,7 @@ public sealed class AppCore
         SettingsCoordinator = new SettingsCoordinator(this);
         LauncherCoordinator = new LauncherCoordinator(this);
         FileSearchCoordinator = new FileSearchCoordinator(this);
+        MenuSearchCoordinator = new MenuSearchCoordinator(this);
         ClipboardCoordinator = new ClipboardCoordinator(this);
         AiCoordinator = new AiCoordinator(this);
         Dialogs = new DialogPresenter(this);
@@ -198,6 +209,8 @@ public sealed class AppCore
         CalcHistory = JsonList.Load<CalcResult>(AppPaths.CalcHistoryFile);
         HotKeys = JsonList.Load<HotKeyBinding>(AppPaths.HotKeysFile);
         Layouts = JsonList.Load<WindowLayout>(AppPaths.LayoutsFile);
+        EmojiPins = JsonList.Load<string>(AppPaths.EmojiPinsFile);
+        EmojiFrequent = JsonList.Load<string>(AppPaths.EmojiFrequentFile);
         McpServers = McpHost.Load().ToList();
         Chat = JsonList.Load<AiChatMessage>(AppPaths.ChatFile);
         QuickActions = JsonList.Load<QuickAction>(AppPaths.QuickActionsFile);
@@ -427,7 +440,7 @@ public sealed class AppCore
     public void RefreshSnippetHook() =>
         _hotKeys?.SetSnippetKeywords(
             Settings.SnippetsEnabled
-                ? Snippets.Select(s => (s.Keyword, s.Id))
+                ? Snippets.Where(s => s.Enabled).Select(s => (s.Keyword, s.Id))
                 : []);
     public void PersistQuicklinks() => JsonList.Save(AppPaths.QuicklinksFile, Quicklinks);
     public void PersistCustomCommands() => JsonList.Save(AppPaths.CustomCommandsFile, CustomCommands);
@@ -438,6 +451,11 @@ public sealed class AppCore
         _hotKeys?.ReplaceBindings(HotKeys);
     }
     public void PersistLayouts() => JsonList.Save(AppPaths.LayoutsFile, Layouts);
+    public void PersistEmoji()
+    {
+        JsonList.Save(AppPaths.EmojiPinsFile, EmojiPins);
+        JsonList.Save(AppPaths.EmojiFrequentFile, EmojiFrequent);
+    }
     public void PersistFallbacks() => JsonList.Save(AppPaths.FallbacksFile, Fallbacks);
     public void RefreshFallbacks()
     {
@@ -859,27 +877,32 @@ public sealed class AppCore
 
     public void SaveCurrentLayout()
     {
-        var screens = WindowInventory.Screens();
-        var slots = WindowInventory.Enumerate()
-            .Select(w =>
-            {
-                var frame = WindowInventory.Frame(w.Hwnd);
-                var screen = 0;
-                for (var i = 0; i < screens.Count; i++)
-                {
-                    var b = screens[i].Frame;
-                    if (frame.X + frame.Width / 2 >= b.X && frame.X + frame.Width / 2 <= b.X + b.Width
-                        && frame.Y + frame.Height / 2 >= b.Y && frame.Y + frame.Height / 2 <= b.Y + b.Height)
-                    {
-                        screen = i;
-                        break;
-                    }
-                }
+        var front = NativeMethods.GetForegroundWindow();
+        string? frontmost = null;
+        var displays = WindowInventory.Displays();
+        var slots = new List<WindowLayoutSlot>();
+        foreach (var window in WindowInventory.Enumerate())
+        {
+            var frame = WindowInventory.Frame(window.Hwnd);
+            var host = displays
+                .Select((d, i) => (Display: d, Index: i, Area: d.VisibleFrame.Intersect(frame).Area))
+                .OrderByDescending(x => x.Area)
+                .FirstOrDefault();
+            if (host.Display is null)
+                continue;
+            var entry = WindowLayoutGeometry.Describe(
+                frame,
+                host.Display.VisibleFrame,
+                window.ProcessName,
+                window.Path,
+                host.Display.Id);
+            var slot = WindowLayoutGeometry.SlotFromEntry(entry, frame, host.Index);
+            slots.Add(slot);
+            if (window.Hwnd == front)
+                frontmost = WindowLayoutGeometry.SlotId(slot);
+        }
 
-                return new WindowLayoutSlot(w.ProcessName, frame, screen, w.Path);
-            })
-            .ToList();
-        Layouts.Add(new WindowLayout(Guid.NewGuid().ToString("n"), "Layout " + (Layouts.Count + 1), slots));
+        Layouts.Add(new WindowLayout(Guid.NewGuid().ToString("n"), "Layout " + (Layouts.Count + 1), slots, frontmost));
         PersistLayouts();
         ShowMessage("Window layout saved");
     }
@@ -887,40 +910,117 @@ public sealed class AppCore
     public void RestoreLayout(string id)
     {
         var layout = Layouts.FirstOrDefault(l => l.Id == id);
-        if (layout is null)
+        if (layout is null || !Settings.WindowManagementEnabled)
             return;
-        var windows = WindowInventory.Enumerate().ToList();
+        var displays = WindowInventory.Displays();
+        var windows = WindowInventory.Enumerate()
+            .Select((w, i) => (w.ProcessName, w.Path, Frame: WindowInventory.Frame(w.Hwnd), Index: i, w.Hwnd))
+            .ToList();
+        var claimed = new HashSet<int>();
+        string? frontHwndProcess = null;
+        nint frontHwnd = 0;
         foreach (var slot in layout.Slots)
         {
-            var matchIndex = -1;
-            if (!string.IsNullOrWhiteSpace(slot.Path))
+            var display = WindowLayoutGeometry.MatchDisplay(slot.DisplayId, slot.ScreenId, displays);
+            if (display is null)
+                continue;
+            var entry = WindowLayoutGeometry.EntryFromSlot(slot);
+            var target = WindowLayoutGeometry.ResolveSlot(slot, display.VisibleFrame);
+            var match = WindowLayoutGeometry.NearestWindowIndex(
+                entry,
+                target,
+                windows.Select(w => (w.ProcessName, w.Path, w.Frame, w.Index)).ToList(),
+                claimed);
+            if (match is int index)
             {
-                matchIndex = windows.FindIndex(w =>
-                    w.Path is not null && w.Path.Equals(slot.Path, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (matchIndex < 0)
-            {
-                matchIndex = windows.FindIndex(w =>
-                    w.ProcessName.Equals(slot.ProcessName, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (matchIndex < 0)
-            {
-                if (!string.IsNullOrWhiteSpace(slot.Path))
+                claimed.Add(index);
+                WindowInventory.Place(windows[index].Hwnd, target);
+                if (layout.FrontmostEntryId is not null && WindowLayoutGeometry.SlotId(slot) == layout.FrontmostEntryId)
                 {
-                    try { ProcessLauncher.Open(slot.Path); }
-                    catch (Exception) { }
+                    frontHwnd = windows[index].Hwnd;
+                    frontHwndProcess = windows[index].ProcessName;
                 }
 
                 continue;
             }
 
-            var match = windows[matchIndex];
-            windows.RemoveAt(matchIndex);
-            WindowInventory.Place(match.Hwnd, slot.Frame);
+            if (!string.IsNullOrWhiteSpace(slot.Path))
+            {
+                try { ProcessLauncher.Open(slot.Path); }
+                catch (Exception) { }
+            }
         }
+
+        if (frontHwnd != 0)
+            WindowInventory.Focus(frontHwnd);
+        _ = frontHwndProcess;
     }
+
+    public void ClearArguments() => Arguments = null;
+
+    public void BeginArguments(ArgumentSession session)
+    {
+        Arguments = session;
+        PaletteCoordinator.ShowPalette(PaletteMode.CommandArguments);
+    }
+
+    public bool SubmitArguments(string value)
+    {
+        if (Arguments is null)
+            return false;
+        if (!Arguments.Submit(value))
+            return false;
+        Palette.Query = Arguments.IsComplete ? "" : Arguments.CurrentDraft;
+        Palette.Notify();
+        if (!Arguments.IsComplete)
+            return true;
+        var session = Arguments;
+        Arguments = null;
+        if (session.Kind == "snippet")
+        {
+            var snippet = Snippets.FirstOrDefault(s => s.Id == session.OwnerId);
+            if (snippet is not null)
+                PasteSnippetWithArgs(snippet, TargetHwnd(), session.Values);
+            return true;
+        }
+
+        if (session.Kind == "command")
+        {
+            var command = CustomCommands.FirstOrDefault(c => c.Id == session.OwnerId);
+            if (command is not null)
+                _ = RunCustomCommand(command, session.Values);
+        }
+
+        return true;
+    }
+
+    public bool BackArguments()
+    {
+        if (Arguments is null)
+            return false;
+        if (!Arguments.Back())
+            return false;
+        Palette.Query = Arguments.CurrentDraft;
+        Palette.Notify();
+        return true;
+    }
+
+    IntPtr TargetHwnd() => PaletteWindow?.PreviousHwnd ?? NativeMethods.GetForegroundWindow();
+
+    public void ToggleEmojiPin(string glyph)
+    {
+        EmojiPins = EmojiPinOrder.Toggle(EmojiPins, glyph).ToList();
+        PersistEmoji();
+        Palette.Notify();
+    }
+
+    public void RecordEmoji(string glyph)
+    {
+        EmojiFrequent = FrequentEmoji.Record(EmojiFrequent, glyph).ToList();
+        PersistEmoji();
+    }
+
+    public int EmojiColumns => EmojiGridGeometry.ClampColumns(EmojiColumnsOverride ?? Settings.EmojiColumns);
 
     public void PauseHotKeys() => _hotKeys?.Pause();
     public void ResumeHotKeys() => _hotKeys?.ReplaceBindings(HotKeys);
@@ -975,12 +1075,27 @@ public sealed class AppCore
 
     public bool TryPasteSnippet(StoredSnippet snippet, IntPtr previousHwnd, bool hidePalette = true, int backspace = 0)
     {
+        if (!snippet.Enabled || !Settings.SnippetsEnabled)
+            return true;
+        var declared = SnippetTemplateEngine.DeclaredArguments(snippet.Text);
+        if (declared.Count > 0)
+        {
+            BeginArguments(new ArgumentSession(
+                snippet.Id,
+                "snippet",
+                declared.Select(d => new ArgumentPrompt(d.Name, true, null, d.Options)).ToList()));
+            return true;
+        }
+
+        return PasteSnippetWithArgs(snippet, previousHwnd, [], hidePalette, backspace);
+    }
+
+    bool PasteSnippetWithArgs(StoredSnippet snippet, IntPtr previousHwnd, IReadOnlyList<string> values, bool hidePalette = true, int backspace = 0)
+    {
         var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var declared = SnippetTemplateEngine.DeclaredArguments(snippet.Text);
-        if (declared.Count > 0 && !string.IsNullOrWhiteSpace(Palette.Query)
-            && !Palette.Query.Equals(snippet.Name, StringComparison.OrdinalIgnoreCase)
-            && !Palette.Query.Equals(snippet.Keyword, StringComparison.OrdinalIgnoreCase))
-            args[declared[0].Name] = Palette.Query;
+        for (var i = 0; i < declared.Count && i < values.Count; i++)
+            args[declared[i].Name] = values[i];
 
         var expanded = SnippetTemplateEngine.Expand(snippet.Text, new ExpansionContext
         {
@@ -990,12 +1105,12 @@ public sealed class AppCore
         }, args, Snippets);
         if (expanded.MissingArguments.Count > 0)
         {
-            PendingSnippet = snippet;
-            ShowMessage("Type a value for " + expanded.MissingArguments[0].Name + ", then Enter.");
-            return false;
+            BeginArguments(new ArgumentSession(
+                snippet.Id,
+                "snippet",
+                expanded.MissingArguments.Select(d => new ArgumentPrompt(d.Name, true, null, d.Options)).ToList()));
+            return true;
         }
-
-        PendingSnippet = null;
 
         if (hidePalette)
             PaletteCoordinator.HidePalette();
@@ -1005,7 +1120,87 @@ public sealed class AppCore
         NativeMethods.SendUnicode(expanded.Text);
         if (expanded.CursorOffsetFromEnd is > 0 and var left)
             Paster.MoveCaretLeft(left);
+        if (snippet.ShowConfirmation)
+            ShowMessage(snippet.Name);
         return true;
+    }
+
+    public async Task RunCustomCommand(CustomCommand command, IReadOnlyList<string>? values = null)
+    {
+        if (!command.Enabled || !Settings.CustomCommandsEnabled)
+            return;
+        var parameters = command.Parameters ?? [];
+        if (parameters.Count > 0 && values is null)
+        {
+            BeginArguments(new ArgumentSession(
+                command.Id,
+                "command",
+                parameters.Select(p => new ArgumentPrompt(p.Name, p.Required)).ToList()));
+            return;
+        }
+
+        if (command.Confirm)
+        {
+            PaletteCoordinator.HidePalette();
+            var choice = await Confirm(new DialogRequest(
+                "Run " + command.Name + "?",
+                "\uE756",
+                [new DialogAction("Cancel", DialogActionRole.Cancel), new DialogAction("Run")],
+                1, 0, command.FileName));
+            if (choice != 1)
+                return;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var cwd = ShellCommandSpec.ResolvedWorkingDirectory(command.WorkingDirectory, home);
+        if (cwd is null)
+        {
+            ShowMessage("Working folder is missing: " + command.WorkingDirectory, DialogTone.Danger);
+            return;
+        }
+
+        PaletteCoordinator.HidePalette();
+        var positional = (values ?? []).Concat(command.Arguments ?? []).ToList();
+        try
+        {
+            if (command.ShowOutput)
+            {
+                LastCommandOutput = "";
+                PaletteCoordinator.ShowPalette(PaletteMode.CommandOutput);
+                await CommandProcess.StreamAsync(
+                    command.FileName,
+                    positional,
+                    cwd,
+                    command.LoadEnvironment,
+                    chunk =>
+                    {
+                        LastCommandOutput += chunk;
+                        Palette.Notify();
+                    });
+            }
+            else
+            {
+                var output = CommandProcess.Run(
+                    command.FileName, positional, "", cwd, command.LoadEnvironment);
+                if (command.ShowConfirmation)
+                    ShowMessage(LastLine(output) ?? ("Ran " + command.Name));
+                else if (!string.IsNullOrWhiteSpace(output))
+                {
+                    LastCommandOutput = output;
+                    PaletteCoordinator.ShowPalette(PaletteMode.CommandOutput);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    static string? LastLine(string output)
+    {
+        var lines = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        return lines.Length == 0 ? null : lines[^1];
     }
 
     public void JoinNextMeeting()
@@ -1071,8 +1266,40 @@ public sealed class AppCore
             return;
         }
 
+        if (!CommandAvailability.CanRun(id, Settings) && !id.StartsWith("custom:", StringComparison.Ordinal)
+            && !id.StartsWith("layout:", StringComparison.Ordinal)
+            && !id.StartsWith("window-command:", StringComparison.Ordinal))
+            return;
+        if (CustomCommands.Any(c => c.Id == id) && !Settings.CustomCommandsEnabled)
+            return;
+        if (id.StartsWith("layout:", StringComparison.Ordinal) && !Settings.WindowManagementEnabled)
+            return;
+        if (id.StartsWith("window-command:", StringComparison.Ordinal) && !Settings.WindowManagementEnabled)
+            return;
+        if (ModeFor(id) is { } mode)
+        {
+            PaletteCoordinator.TogglePalette(mode);
+            return;
+        }
+
         LauncherCoordinator.Activate(id);
     }
+
+    static PaletteMode? ModeFor(string id) => id switch
+    {
+        BuiltinCommands.Clipboard => PaletteMode.Clipboard,
+        BuiltinCommands.Emoji => PaletteMode.Emoji,
+        BuiltinCommands.FileSearch => PaletteMode.FileSearch,
+        BuiltinCommands.CalculatorHistory => PaletteMode.CalculatorHistory,
+        BuiltinCommands.Snippets => PaletteMode.Snippets,
+        BuiltinCommands.Quicklinks => PaletteMode.Quicklinks,
+        BuiltinCommands.SwitchWindows => PaletteMode.SwitchWindows,
+        BuiltinCommands.MenuSearch => PaletteMode.MenuSearch,
+        BuiltinCommands.Uninstall => PaletteMode.Uninstall,
+        BuiltinCommands.Schedule => PaletteMode.Schedule,
+        BuiltinCommands.AiChat => PaletteMode.AiChat,
+        _ => null,
+    };
 
     public string McpStatus() => McpHost.Status(McpServers, Settings.McpEnabled);
 

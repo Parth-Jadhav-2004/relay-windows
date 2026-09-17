@@ -179,13 +179,22 @@
                 <StackPanel x:Name="CommandsPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Commands" />
                     <ToggleSwitch x:Name="CustomSwitch" OffContent="" OnContent="" Header="Custom commands" Toggled="OnFeatureToggled" />
-                    <ListView x:Name="CustomCommandsList" Height="200" />
+                    <ToggleSwitch x:Name="CustomShowSwitch" OffContent="" OnContent="" Header="Show in launcher" Toggled="OnFeatureToggled" />
+                    <ListView x:Name="CustomCommandsList" Height="200" SelectionChanged="OnCustomSelected" />
                     <TextBox x:Name="CmdNameBox" PlaceholderText="Name" />
-                    <TextBox x:Name="CmdFileBox" PlaceholderText="Executable path" />
-                    <TextBox x:Name="CmdArgsBox" PlaceholderText="Arguments, space-separated" />
+                    <TextBox x:Name="CmdFileBox" PlaceholderText="Command text or executable path" />
+                    <TextBox x:Name="CmdArgsBox" PlaceholderText="Static arguments, space-separated (never spliced)" />
+                    <TextBox x:Name="CmdCwdBox" PlaceholderText="Working folder (blank = home)" />
+                    <TextBox x:Name="CmdParamsBox" AcceptsReturn="True" Height="60" TextWrapping="Wrap" PlaceholderText="Prompts, one per line" />
+                    <ToggleSwitch x:Name="CmdEnabledSwitch" OffContent="" OnContent="" Header="Enabled" />
+                    <ToggleSwitch x:Name="CmdConfirmSwitch" OffContent="" OnContent="" Header="Confirm before running" />
+                    <ToggleSwitch x:Name="CmdOutputSwitch" OffContent="" OnContent="" Header="Show output" />
+                    <ToggleSwitch x:Name="CmdEnvSwitch" OffContent="" OnContent="" Header="Load shell environment" />
+                    <ToggleSwitch x:Name="CmdHudSwitch" OffContent="" OnContent="" Header="Show confirmation HUD" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Click="OnAddCustom" Content="Add" />
+                        <Button Click="OnAddCustom" Content="Save" />
                         <Button Click="OnRemoveCustom" Content="Remove selected" />
+                        <Button Click="OnImportCommandScript" Content="Import script" />
                     </StackPanel>
                 </StackPanel>
 
@@ -255,10 +264,13 @@
                 <StackPanel x:Name="SnippetsPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Snippets" />
                     <ToggleSwitch x:Name="SnippetsSwitch" OffContent="" OnContent="" Header="Enable snippets" Toggled="OnFeatureToggled" />
+                    <ToggleSwitch x:Name="SnippetsShowSwitch" OffContent="" OnContent="" Header="Show in launcher" Toggled="OnFeatureToggled" />
                     <ListView x:Name="SnippetsList" Height="160" SelectionChanged="OnSnippetSelected" />
                     <TextBox x:Name="SnippetNameBox" PlaceholderText="Name" />
                     <TextBox x:Name="SnippetKeywordBox" PlaceholderText="Keyword" />
                     <TextBox x:Name="SnippetTextBox" AcceptsReturn="True" Height="100" TextWrapping="Wrap" PlaceholderText="Template. Markdown files with frontmatter also load from the snippets folder." />
+                    <ToggleSwitch x:Name="SnippetEnabledSwitch" OffContent="" OnContent="" Header="Enabled" />
+                    <ToggleSwitch x:Name="SnippetConfirmSwitch" OffContent="" OnContent="" Header="Show confirmation" />
                     <TextBlock x:Name="SnippetConflictText" TextWrapping="Wrap" Opacity="0.7" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnSaveSnippet" Content="Save" />
@@ -275,6 +287,7 @@
                 <StackPanel x:Name="WindowManagementPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Window Management" />
                     <ToggleSwitch x:Name="WindowSwitch" OffContent="" OnContent="" Header="Enable window management" Toggled="OnFeatureToggled" />
+                    <ToggleSwitch x:Name="LayoutsShowSwitch" OffContent="" OnContent="" Header="Show layouts in launcher" Toggled="OnFeatureToggled" />
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -292,6 +305,19 @@
                     <ListView x:Name="LayoutsList" Height="140" SelectionChanged="OnLayoutSelected" />
                     <TextBox x:Name="LayoutNameBox" PlaceholderText="Name" />
                     <TextBox x:Name="LayoutSlotsBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="process  x  y  width  height  [path]" />
+                    <ComboBox x:Name="LayoutAnchorBox" Width="220" HorizontalAlignment="Left" Header="3×3 anchor">
+                        <ComboBoxItem Content="Top left" Tag="top-left" />
+                        <ComboBoxItem Content="Top" Tag="top" />
+                        <ComboBoxItem Content="Top right" Tag="top-right" />
+                        <ComboBoxItem Content="Left" Tag="left" />
+                        <ComboBoxItem Content="Center" Tag="center" />
+                        <ComboBoxItem Content="Right" Tag="right" />
+                        <ComboBoxItem Content="Bottom left" Tag="bottom-left" />
+                        <ComboBoxItem Content="Bottom" Tag="bottom" />
+                        <ComboBoxItem Content="Bottom right" Tag="bottom-right" />
+                    </ComboBox>
+                    <NumberBox x:Name="LayoutWidthBox" Header="Width fraction" Maximum="1" Minimum="0.01" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                    <NumberBox x:Name="LayoutHeightBox" Header="Height fraction" Maximum="1" Minimum="0.01" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Click="OnCaptureLayout" Content="Capture" />
                         <Button Click="OnSaveLayoutEdit" Content="Save" />

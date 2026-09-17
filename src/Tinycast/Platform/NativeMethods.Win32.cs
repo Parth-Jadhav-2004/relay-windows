@@ -137,7 +137,7 @@ internal static partial class NativeMethods
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref Rect lprcMonitor, IntPtr dwData);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW", SetLastError = true)]
-    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+    public static extern bool GetMonitorInfoEx(IntPtr hMonitor, ref MonitorInfoEx lpmi);
 
     [DllImport("powrprof.dll", SetLastError = true)]
     public static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
@@ -156,13 +156,15 @@ internal static partial class NativeMethods
         public int Height => Bottom - Top;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MonitorInfo
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MonitorInfoEx
     {
         public int Size;
         public Rect Monitor;
         public Rect Work;
         public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
     }
 
     [StructLayout(LayoutKind.Sequential)]

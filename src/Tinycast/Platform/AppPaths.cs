@@ -39,6 +39,8 @@ public static class AppPaths
     public static string EnvFile => Path.Combine(Root, ".env");
     public static string FallbacksFile => Path.Combine(Root, "fallbacks.json");
     public static string OnboardingFile => Path.Combine(Root, "onboarding.json");
+    public static string EmojiPinsFile => Path.Combine(Root, "emoji-pinned.json");
+    public static string EmojiFrequentFile => Path.Combine(Root, "emoji-frequent.json");
 
     public static void EnsureRoot()
     {

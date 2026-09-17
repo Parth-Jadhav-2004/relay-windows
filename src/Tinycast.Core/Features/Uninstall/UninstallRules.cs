@@ -46,8 +46,14 @@ public static class UninstallRules
     public static bool MatchesName(string component, UninstallIdentity identity)
     {
         var needle = Folded(identity.DisplayName);
-        return MatchableForms(component).Any(form => Folded(form).Contains(needle) && needle.Length >= 3);
+        if (needle.Length < 3 || IsLibraryWell(needle))
+            return false;
+        return MatchableForms(component).Any(form => Folded(form) == needle);
     }
+
+    public static bool IsLibraryWell(string folded) => folded is
+        "preferences" or "caches" or "containers" or "logs" or "application support"
+        or "saved application state" or "webkit" or "httpstorages" or "cookies";
 
     public static bool IsProtected(string path)
     {

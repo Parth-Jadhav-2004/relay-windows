@@ -16,12 +16,15 @@ public sealed class AppSettings
     public bool ExtensionsEnabled { get; set; }
     public bool QuickActionsEnabled { get; set; }
     public bool ClipboardEnabled { get; set; } = true;
-    public bool WindowManagementEnabled { get; set; } = true;
-    public bool FileSearchEnabled { get; set; } = true;
+    public bool WindowManagementEnabled { get; set; }
+    public bool FileSearchEnabled { get; set; }
     public bool NotesEnabled { get; set; }
     public bool QuicklinksEnabled { get; set; }
-    public bool CustomCommandsEnabled { get; set; } = true;
-    public bool NavigationEnabled { get; set; } = true;
+    public bool CustomCommandsEnabled { get; set; }
+    public bool NavigationEnabled { get; set; }
+    public bool SnippetsShowInLauncher { get; set; } = true;
+    public bool WindowLayoutsShowInLauncher { get; set; } = true;
+    public bool CustomCommandsShowInLauncher { get; set; } = true;
     public List<string> FileSearchScopes { get; set; } = [];
     public List<string> FileSearchIgnorePatterns { get; set; } = [];
     public int WindowGap { get; set; } = 8;

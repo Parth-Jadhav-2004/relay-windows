@@ -26,6 +26,9 @@ public static class SettingsSnapshot
         [AppSettingsKey.QuicklinksEnabled] = Flag(settings.QuicklinksEnabled),
         [AppSettingsKey.CustomCommandsEnabled] = Flag(settings.CustomCommandsEnabled),
         [AppSettingsKey.NavigationEnabled] = Flag(settings.NavigationEnabled),
+        [AppSettingsKey.SnippetsShowInLauncher] = Flag(settings.SnippetsShowInLauncher),
+        [AppSettingsKey.WindowLayoutsShowInLauncher] = Flag(settings.WindowLayoutsShowInLauncher),
+        [AppSettingsKey.CustomCommandsShowInLauncher] = Flag(settings.CustomCommandsShowInLauncher),
         [AppSettingsKey.FileSearchScopes] = string.Join("\n", settings.FileSearchScopes),
         [AppSettingsKey.FileSearchIgnorePatterns] = string.Join("\n", settings.FileSearchIgnorePatterns),
         [AppSettingsKey.WindowGap] = settings.WindowGap.ToString(CultureInfo.InvariantCulture),
@@ -96,6 +99,15 @@ public static class SettingsSnapshot
                     break;
                 case AppSettingsKey.NavigationEnabled:
                     settings.NavigationEnabled = IsTrue(value);
+                    break;
+                case AppSettingsKey.SnippetsShowInLauncher:
+                    settings.SnippetsShowInLauncher = IsTrue(value);
+                    break;
+                case AppSettingsKey.WindowLayoutsShowInLauncher:
+                    settings.WindowLayoutsShowInLauncher = IsTrue(value);
+                    break;
+                case AppSettingsKey.CustomCommandsShowInLauncher:
+                    settings.CustomCommandsShowInLauncher = IsTrue(value);
                     break;
                 case AppSettingsKey.FileSearchScopes:
                     settings.FileSearchScopes = Lines(value);
@@ -185,7 +197,9 @@ public static class SettingsSnapshot
                 or AppSettingsKey.NavigationExcludedApps => true,
             AppSettingsKey.ShowInTray or AppSettingsKey.ClipboardEnabled or AppSettingsKey.WindowManagementEnabled
                 or AppSettingsKey.FileSearchEnabled or AppSettingsKey.NotesEnabled or AppSettingsKey.QuicklinksEnabled
-                or AppSettingsKey.CustomCommandsEnabled or AppSettingsKey.NavigationEnabled or AppSettingsKey.ClipboardOcrEnabled
+                or AppSettingsKey.CustomCommandsEnabled or AppSettingsKey.NavigationEnabled
+                or AppSettingsKey.SnippetsShowInLauncher or AppSettingsKey.WindowLayoutsShowInLauncher
+                or AppSettingsKey.CustomCommandsShowInLauncher or AppSettingsKey.ClipboardOcrEnabled
                 or AppSettingsKey.ClipboardKeepOpen or AppSettingsKey.CompactPalette or AppSettingsKey.PaletteRememberPosition
                 or AppSettingsKey.PaletteEscapeClearsQuery => bool.TryParse(value, out _) || value is "0" or "1",
             _ => false,

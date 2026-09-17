@@ -247,12 +247,90 @@ public class JsonKeyedStore<T>
     }
 }
 
-public sealed class FavoritesStore : JsonKeyedStore<bool>
+public sealed class FavoritesStore
 {
-    public FavoritesStore(string path) : base(path) { }
-    public bool IsFavorite(string id) => Items.TryGetValue(id, out var value) && value;
-    public void Toggle(string id) => Set(id, !IsFavorite(id));
-    public IReadOnlyList<string> OrderedIds() => Items.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
+    readonly string _path;
+    readonly List<string> _ids = [];
+
+    public FavoritesStore(string path)
+    {
+        _path = path;
+        Load();
+    }
+
+    public bool IsFavorite(string id) =>
+        _ids.Any(existing => existing.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    public IReadOnlyList<string> OrderedIds() => _ids.ToList();
+
+    public string? At(int index) => index >= 0 && index < _ids.Count ? _ids[index] : null;
+
+    public void Toggle(string id)
+    {
+        var index = _ids.FindIndex(existing => existing.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+            _ids.RemoveAt(index);
+        else
+            _ids.Add(id);
+        Persist();
+    }
+
+    public bool Move(string id, int delta)
+    {
+        var index = _ids.FindIndex(existing => existing.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            return false;
+        var target = index + delta;
+        if (target < 0 || target >= _ids.Count)
+            return false;
+        (_ids[index], _ids[target]) = (_ids[target], _ids[index]);
+        Persist();
+        return true;
+    }
+
+    void Load()
+    {
+        try
+        {
+            if (!File.Exists(_path))
+                return;
+            var json = File.ReadAllText(_path);
+            try
+            {
+                var list = JsonSerializer.Deserialize<List<string>>(json);
+                if (list is not null && (list.Count == 0 || list[0] is not null) && !json.TrimStart().StartsWith('{'))
+                {
+                    foreach (var id in list.Where(id => !string.IsNullOrWhiteSpace(id)))
+                    {
+                        if (!_ids.Contains(id, StringComparer.OrdinalIgnoreCase))
+                            _ids.Add(id);
+                    }
+                    return;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            var dict = JsonSerializer.Deserialize<Dictionary<string, bool>>(json);
+            if (dict is null)
+                return;
+            foreach (var (key, value) in dict)
+            {
+                if (value && !_ids.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    _ids.Add(key);
+            }
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    void Persist()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        File.WriteAllText(_path, JsonSerializer.Serialize(_ids));
+    }
 }
 
 public sealed class AliasStore : JsonKeyedStore<string>
@@ -274,8 +352,8 @@ public sealed class VisibilityStore : JsonKeyedStore<bool>
         AppEntryKind.Command => true,
         AppEntryKind.Favorite => true,
         AppEntryKind.Quicklink => settings.QuicklinksEnabled,
-        AppEntryKind.Snippet => settings.SnippetsEnabled,
-        AppEntryKind.CustomCommand => settings.CustomCommandsEnabled,
+        AppEntryKind.Snippet => settings.SnippetsEnabled && settings.SnippetsShowInLauncher,
+        AppEntryKind.CustomCommand => settings.CustomCommandsEnabled && settings.CustomCommandsShowInLauncher,
         _ => true,
     };
 }

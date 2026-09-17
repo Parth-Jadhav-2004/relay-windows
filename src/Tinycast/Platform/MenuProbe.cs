@@ -12,7 +12,11 @@ internal static class MenuProbe
     static extern int GetMenuString(IntPtr hMenu, uint uIDItem, StringBuilder lpString, int nMaxCount, uint uFlag);
     [DllImport("user32.dll")] static extern IntPtr GetSubMenu(IntPtr hMenu, int nPos);
     [DllImport("user32.dll")] static extern uint GetMenuItemID(IntPtr hMenu, int nPos);
+    [DllImport("user32.dll")] static extern uint GetMenuState(IntPtr hMenu, uint uId, uint uFlags);
     const uint MfByPosition = 0x00000400;
+    const uint MfGrayed = 0x00000001;
+    const uint MfDisabled = 0x00000002;
+    const uint MfSeparator = 0x00000800;
 
     public static IReadOnlyList<MenuSearchItem> Items(IntPtr hwnd)
     {
@@ -21,39 +25,52 @@ internal static class MenuProbe
         var menu = GetMenu(hwnd);
         if (menu == IntPtr.Zero)
             return [];
-        return Walk(menu, "", hwnd);
+        var items = new List<MenuSearchItem>();
+        Walk(menu, Array.Empty<string>(), hwnd, items, 0);
+        return MenuSnapshotPolicy.Flatten(items, dropFirstTopLevel: false);
     }
 
-    public static IReadOnlyList<MenuSearchItem> ForegroundItems() =>
-        Items(NativeMethods.GetForegroundWindow());
-
-    static List<MenuSearchItem> Walk(IntPtr menu, string prefix, IntPtr hwnd)
+    static void Walk(IntPtr menu, IReadOnlyList<string> trail, IntPtr hwnd, List<MenuSearchItem> items, int depth)
     {
-        var items = new List<MenuSearchItem>();
+        if (!MenuSnapshotPolicy.CanEnter(depth, items.Count))
+            return;
         var count = GetMenuItemCount(menu);
+        var leaves = 0;
         for (var i = 0; i < count; i++)
         {
+            if (items.Count >= MenuSnapshotPolicy.ItemLimit)
+                return;
+            var state = GetMenuState(menu, (uint)i, MfByPosition);
             var buffer = new StringBuilder(256);
             if (GetMenuString(menu, (uint)i, buffer, buffer.Capacity, MfByPosition) <= 0)
                 continue;
-            var label = buffer.ToString().Replace("&", "", StringComparison.Ordinal);
-            if (label.Length == 0)
+            var raw = buffer.ToString();
+            var tab = raw.IndexOf('\t');
+            var shortcut = tab >= 0 ? raw[(tab + 1)..] : "";
+            var label = (tab >= 0 ? raw[..tab] : raw).Replace("&", "", StringComparison.Ordinal).Trim();
+            if (label.Length == 0 || (state & MfSeparator) != 0)
                 continue;
-            var path = string.IsNullOrEmpty(prefix) ? label : prefix + " › " + label;
+            var next = trail.Append(label).ToList();
             var sub = GetSubMenu(menu, i);
             if (sub != IntPtr.Zero)
-                items.AddRange(Walk(sub, path, hwnd));
-            else
             {
-                var id = GetMenuItemID(menu, i);
-                var tab = label.IndexOf('\t');
-                var shortcut = tab >= 0 ? label[(tab + 1)..] : "";
-                var title = tab >= 0 ? label[..tab] : path;
-                items.Add(new MenuSearchItem(string.IsNullOrEmpty(prefix) ? title : prefix + " › " + title, shortcut, id, hwnd));
+                Walk(sub, next, hwnd, items, depth + 1);
+                continue;
             }
-        }
 
-        return items;
+            if (leaves >= MenuSnapshotPolicy.PerSubmenuLimit)
+                continue;
+            leaves++;
+            var enabled = (state & (MfGrayed | MfDisabled)) == 0;
+            items.Add(new MenuSearchItem(
+                MenuSearchItem.Join(next),
+                shortcut,
+                GetMenuItemID(menu, i),
+                hwnd,
+                label,
+                MenuSearchItem.Join(trail),
+                enabled));
+        }
     }
 }
 

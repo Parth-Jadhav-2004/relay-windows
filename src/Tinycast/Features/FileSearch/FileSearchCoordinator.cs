@@ -81,16 +81,21 @@ public sealed class FileSearchCoordinator
         if (!_core.Settings.FileSearchEnabled)
             return [Hint("file-off", "File search is off", "Enable it in Settings → File Search", "\uE721")];
 
-        var ignore = FileSearchService.Compile(_core.Settings.FileSearchIgnorePatterns);
+        var policy = FileSearchPolicy.Resolve(
+            _core.Settings.FileSearchScopes,
+            _core.Settings.FileSearchIgnorePatterns,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            HomeChildren);
+        var ignore = policy.Ignore;
         if (LooksLikePath(query) is { } existing)
             return [ToRow(existing, existing.IsDirectory ? "Go to folder" : "Open")];
 
         if (_root is null)
-            return RootRows(query, ignore);
+            return RootRows(query, ignore, policy.Roots);
         return BrowseRows(query, ignore);
     }
 
-    IReadOnlyList<PaletteRow> RootRows(string query, FileSearchIgnoreList ignore)
+    IReadOnlyList<PaletteRow> RootRows(string query, FileSearchIgnoreList ignore, IReadOnlyList<string> scopes)
     {
         var rows = new List<PaletteRow>();
         var volumes = FileBrowse.FilterVolumes(FileSearchService.Volumes(), query);
@@ -102,14 +107,14 @@ public sealed class FileSearchCoordinator
 
         if (query.Trim().Length == 0)
         {
-            var recents = FileSearchService.Recents(ResolvedScopes(), ignore, _filter);
+            var recents = scopes.Count == 0 ? [] : FileSearchService.Recents(scopes, ignore, _filter);
             if (recents.Count > 0)
             {
                 foreach (var recent in recents)
                     rows.Add(ToRow(recent, "Recently Used"));
             }
             else if (rows.Count == 0)
-                rows.Add(Hint("file-hint", "Type a drive letter or a name", "Enter a volume to browse its folders", "\uE721"));
+                rows.Add(Hint("file-hint", "Type a drive letter or a name", "Add folders in Settings → File Search, or enter a volume", "\uE721"));
             return rows;
         }
 
@@ -120,7 +125,13 @@ public sealed class FileSearchCoordinator
             return rows;
         }
 
-        return SearchRows(query.Trim(), ignore, rows);
+        if (scopes.Count == 0)
+        {
+            rows.Add(Hint("file-empty", "No search folders", "Add folders in Settings → File Search", "\uE721"));
+            return rows;
+        }
+
+        return SearchRows(query.Trim(), ignore, rows, scopes);
     }
 
     IReadOnlyList<PaletteRow> BrowseRows(string query, FileSearchIgnoreList ignore)
@@ -135,7 +146,7 @@ public sealed class FileSearchCoordinator
         return rows;
     }
 
-    IReadOnlyList<PaletteRow> SearchRows(string query, FileSearchIgnoreList ignore, List<PaletteRow> leading)
+    IReadOnlyList<PaletteRow> SearchRows(string query, FileSearchIgnoreList ignore, List<PaletteRow> leading, IReadOnlyList<string> scopes)
     {
         if (query == _searchQuery)
         {
@@ -159,13 +170,13 @@ public sealed class FileSearchCoordinator
         _searchQuery = query;
         _searching = true;
         _searchRows = [];
-        var scopes = ResolvedScopes();
+        var searchScopes = scopes;
         _ = Task.Run(() =>
         {
             IReadOnlyList<PaletteRow> rows = [];
             try
             {
-                rows = FileSearchService.Search(query, scopes, ignore, _filter, token)
+                rows = FileSearchService.Search(query, searchScopes, ignore, _filter, token)
                     .Select(f => ToRow(f, "Results"))
                     .ToList();
             }
@@ -306,26 +317,22 @@ public sealed class FileSearchCoordinator
         _core.Palette.Notify();
     }
 
-    IReadOnlyList<string> ResolvedScopes()
+    static IReadOnlyList<string> HomeChildren(string home)
     {
-        var scopes = _core.Settings.FileSearchScopes
-            .Select(s => s.Trim())
-            .Where(s => s.Length > 0)
-            .Select(Expand)
-            .Where(Directory.Exists)
+        var folders = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Path.Combine(home, "Downloads"),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            Path.Combine(home, "OneDrive"),
+        };
+        return folders
+            .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (scopes.Count == 0)
-            scopes.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-        return scopes;
-    }
-
-    static string Expand(string path)
-    {
-        if (path.StartsWith("~\\", StringComparison.Ordinal) || path.StartsWith("~/", StringComparison.Ordinal))
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path[2..]);
-        if (path == "~")
-            return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Environment.ExpandEnvironmentVariables(path);
     }
 
     FileSearchResult? LooksLikePath(string query)
