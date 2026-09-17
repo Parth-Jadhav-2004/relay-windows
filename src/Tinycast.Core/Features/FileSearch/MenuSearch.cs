@@ -143,6 +143,12 @@ public sealed record FileSearchPolicy(IReadOnlyList<string> Roots, FileSearchIgn
             roots.Add(expanded);
         }
 
+        if (roots.Count == 0)
+        {
+            foreach (var child in expandHome?.Invoke(home) ?? [])
+                roots.Add(child);
+        }
+
         return new FileSearchPolicy(roots, ignore);
     }
 

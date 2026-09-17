@@ -1041,10 +1041,13 @@ Regression("settings prevalidation", () =>
 {
     var home = @"C:\Users\demo";
     var empty = FileSearchPolicy.Resolve([], [], home, _ => [@"C:\Users\demo\Documents"]);
-    Check("empty file-search scopes search nothing", empty.Roots.Count == 0);
+    Check("empty file-search scopes use home libraries", empty.Roots.Count == 1 && empty.Roots[0].EndsWith("Documents"));
     var expanded = FileSearchPolicy.Resolve(["~"], ["*.tmp"], home, h => [h + @"\Desktop", h + @"\Documents"]);
     Check("home scope expands to children", expanded.Roots.Count == 2 && expanded.Roots[0].EndsWith("Desktop"));
     Check("shipped ignore still compiled in", expanded.Ignore.Excludes(@"C:\src\node_modules\x"));
+    Check("file search walks nested folders", FileSearchQuery.WalkMaxDepth >= 24);
+    Check("file search skips the Windows tree", FileSearchQuery.IsExcludedPath(@"C:\Windows\System32\notepad.exe", expanded.Ignore));
+    Check("file search keeps Downloads", !FileSearchQuery.IsExcludedPath(@"C:\Users\demo\Downloads\nested\file.pdf", expanded.Ignore));
     Check("aqs joins filename terms", FileSearchAqs.FileNameClause("annual report") == "filename:\"annual\" AND filename:\"report\"");
     Check("file search command hidden when off", !CommandAvailability.InLauncher(BuiltinCommands.FileSearch, new AppSettings()));
     Check("file search shortcut no-ops when off", !CommandAvailability.CanRun(BuiltinCommands.FileSearch, new AppSettings()));

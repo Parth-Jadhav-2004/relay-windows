@@ -86,6 +86,9 @@ internal static partial class NativeMethods
         IntPtr hdc, IntPtr hbmp, uint uStartScan, uint cScanLines,
         byte[] lpvBits, ref BitmapInfo lpbi, uint uUsage);
 
+    [DllImport("shell32.dll")]
+    public static extern int SHGetKnownFolderPath(in Guid rfid, uint dwFlags, IntPtr hToken, out IntPtr ppszPath);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     public static extern int SHCreateItemFromParsingName(
         string pszPath, IntPtr pbc, ref Guid riid, out IShellItemImageFactory ppv);

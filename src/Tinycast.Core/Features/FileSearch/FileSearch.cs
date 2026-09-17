@@ -227,6 +227,7 @@ public static class FileSearchQuery
     public const int SoftCap = 1000;
     public const int HardCap = 200;
     public const int RecentLimit = 20;
+    public const int WalkMaxDepth = 32;
 
     public static IReadOnlyList<string> Terms(string query) =>
         query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -239,14 +240,30 @@ public static class FileSearchQuery
         return terms.All(term => fileName.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
+    public static bool SkipDescendName(string name) =>
+        name.Equals("AppData", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Application Data", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Windows", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Program Files", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Program Files (x86)", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("ProgramData", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("WindowsApps", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Recycle.Bin", StringComparison.OrdinalIgnoreCase);
+
     public static bool IsExcludedPath(string path, FileSearchIgnoreList ignore)
     {
         var normalized = path.Replace('\\', '/');
-        foreach (var component in normalized.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
         {
+            var component = parts[i];
             if (component.Length > 1 && component.StartsWith('.') && component is not "." and not "..")
                 return true;
             if (component.StartsWith('$'))
+                return true;
+            if (i < parts.Length - 1 && SkipDescendName(component))
                 return true;
         }
 

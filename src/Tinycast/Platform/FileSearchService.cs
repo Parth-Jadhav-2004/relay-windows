@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Tinycast.Features.FileSearch;
 
 namespace Tinycast.Platform;
@@ -115,14 +116,20 @@ internal static class FileSearchService
         IEnumerable<string> roots,
         FileSearchIgnoreList ignore,
         FileSearchFilter filter,
-        CancellationToken token = default)
+        CancellationToken token = default,
+        bool wholeCatalog = false)
     {
         var scoped = roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (WindowsSearch.TrySearch(query, scoped, ignore, filter, FileSearchQuery.HardCap, out var indexed))
+        var indexedScopes = wholeCatalog ? [] : scoped;
+        if (WindowsSearch.TrySearch(query, indexedScopes, ignore, filter, FileSearchQuery.HardCap, out var indexed)
+            && indexed.Count > 0)
             return FileSearchQuery.Rank(indexed, query, ignore, filter);
 
         var results = new List<FileSearchResult>();
-        foreach (var root in scoped)
+        var walkRoots = wholeCatalog
+            ? LibraryRoots(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).Concat(scoped).Distinct(StringComparer.OrdinalIgnoreCase)
+            : scoped;
+        foreach (var root in walkRoots)
         {
             if (token.IsCancellationRequested)
                 break;
@@ -136,6 +143,47 @@ internal static class FileSearchService
         if (token.IsCancellationRequested)
             return [];
         return FileSearchQuery.Rank(results, query, ignore, filter);
+    }
+
+    public static IReadOnlyList<string> LibraryRoots(string home)
+    {
+        var folders = new List<string>();
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                return;
+            if (folders.Any(existing => existing.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                return;
+            folders.Add(path);
+        }
+
+        Add(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+        Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+        Add(KnownDownloads(home));
+        Add(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+        Add(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic));
+        Add(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+        Add(Path.Combine(home, "OneDrive"));
+        Add(Path.Combine(home, "Downloads"));
+        return folders;
+    }
+
+    static string? KnownDownloads(string home)
+    {
+        try
+        {
+            var id = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+            var result = NativeMethods.SHGetKnownFolderPath(id, 0, IntPtr.Zero, out var ptr);
+            if (result != 0 || ptr == IntPtr.Zero)
+                return Path.Combine(home, "Downloads");
+            var path = Marshal.PtrToStringUni(ptr);
+            Marshal.FreeCoTaskMem(ptr);
+            return path;
+        }
+        catch (Exception)
+        {
+            return Path.Combine(home, "Downloads");
+        }
     }
 
     static void CollectRecents(
@@ -160,7 +208,7 @@ internal static class FileSearchService
             foreach (var child in Directory.EnumerateDirectories(dir))
             {
                 var name = Path.GetFileName(child);
-                if (name.Equals("AppData", StringComparison.OrdinalIgnoreCase) || FileSearchQuery.IsExcludedPath(child, ignore))
+                if (FileSearchQuery.SkipDescendName(name) || FileSearchQuery.IsExcludedPath(child, ignore))
                     continue;
                 DateTime modified;
                 try { modified = Directory.GetLastWriteTime(child); }
@@ -178,7 +226,7 @@ internal static class FileSearchService
         string dir, int depth, string query, FileSearchIgnoreList ignore, FileSearchFilter filter,
         List<FileSearchResult> results, CancellationToken token)
     {
-        if (token.IsCancellationRequested || depth > 5 || results.Count >= FileSearchQuery.SoftCap)
+        if (token.IsCancellationRequested || depth > FileSearchQuery.WalkMaxDepth || results.Count >= FileSearchQuery.SoftCap)
             return;
         try
         {
@@ -208,18 +256,13 @@ internal static class FileSearchService
                     results.Add(new FileSearchResult(entry, name, modified, isDir));
                 }
 
-                if (isDir && depth < 5 && !SkipDescend(name))
+                if (isDir && depth < FileSearchQuery.WalkMaxDepth && !FileSearchQuery.SkipDescendName(name))
                     Walk(entry, depth + 1, query, ignore, filter, results, token);
             }
         }
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
     }
-
-    static bool SkipDescend(string name) =>
-        name.Equals("AppData", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("WindowsApps", StringComparison.OrdinalIgnoreCase);
 
     public static void Reveal(string path)
     {

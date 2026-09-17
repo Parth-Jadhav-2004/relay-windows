@@ -249,7 +249,8 @@
                 <StackPanel x:Name="FileSearchPane" Spacing="12" Visibility="Collapsed">
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="File Search" />
                     <ToggleSwitch x:Name="FileSearchSwitch" OffContent="" OnContent="" Header="Enable File Search" Toggled="OnFeatureToggled" />
-                    <TextBox x:Name="FileSearchScopesBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="Folders, one per line" LostFocus="OnFileSearchPolicyChanged" />
+                    <TextBlock Opacity="0.7" TextWrapping="Wrap" Text="Type a name to search Documents, Downloads, Desktop, and the rest of the indexed PC. Enter a drive letter to browse folder by folder. Extra folders below are searched too; leave blank to keep the defaults." />
+                    <TextBox x:Name="FileSearchScopesBox" AcceptsReturn="True" Height="80" TextWrapping="Wrap" PlaceholderText="Optional extra folders, one per line. Blank uses Documents, Downloads, Desktop…" LostFocus="OnFileSearchPolicyChanged" />
                     <TextBox x:Name="FileSearchIgnoreBox" AcceptsReturn="True" Height="60" TextWrapping="Wrap" PlaceholderText="Ignore names" LostFocus="OnFileSearchPolicyChanged" />
                 </StackPanel>
 

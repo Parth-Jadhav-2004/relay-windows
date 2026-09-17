@@ -14,11 +14,12 @@ internal static class WindowsSearch
     {
         results = [];
         var clause = FileSearchAqs.FileNameClause(query);
-        if (clause.Length == 0 || scopes.Count == 0)
+        if (clause.Length == 0)
             return false;
+        var scoped = ScopeClause(scopes);
         var sql = "SELECT TOP " + FileSearchQuery.SoftCap
-                  + " System.ItemPathDisplay FROM SystemIndex WHERE ("
-                  + ScopeClause(scopes) + ") AND (" + clause + ")";
+                  + " System.ItemPathDisplay FROM SystemIndex WHERE "
+                  + (scoped.Length == 0 ? clause : "(" + scoped + ") AND (" + clause + ")");
         if (!TryQuery(sql, out var paths))
             return false;
         results = Materialize(paths, ignore, filter, cap);
