@@ -191,12 +191,20 @@ public static class CalcDateTime
         var match = Regex.Match(query, @"^([a-z]+)\s+in\s+(\d+)\s+weeks?$");
         if (!match.Success || !Weekdays.TryGetValue(match.Groups[1].Value, out var day))
             return null;
-        if (!int.TryParse(match.Groups[2].Value, out var weeks))
+        if (!long.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var weeks)
+            || weeks < 0)
             return null;
-        var landing = ctx.Now.Date.AddDays(7 * weeks);
-        var start = StartOfWeek(landing, ctx.FirstDayOfWeek);
-        var offset = ((int)day - (int)ctx.FirstDayOfWeek + 7) % 7;
-        return MomentCard(echo, start.AddDays(offset), false, ctx);
+        try
+        {
+            var landing = ctx.Now.Date.AddDays(7d * weeks);
+            var start = StartOfWeek(landing, ctx.FirstDayOfWeek);
+            var offset = ((int)day - (int)ctx.FirstDayOfWeek + 7) % 7;
+            return MomentCard(echo, start.AddDays(offset), false, ctx);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     static CalcResult? ParseBare(string query, string echo, CalcContext ctx)
@@ -213,7 +221,7 @@ public static class CalcDateTime
             var ms = query.Contains("ms");
             var value = new DateTimeOffset(DateTime.SpecifyKind(ctx.Now, DateTimeKind.Unspecified), ctx.TimeZone.GetUtcOffset(ctx.Now)).ToUnixTimeMilliseconds();
             if (!ms)
-                value /= 1000;
+                value = FloorDiv(value, 1000);
             var text = value.ToString(CultureInfo.InvariantCulture);
             return Ok(echo, text, text, "Now", ms ? "Unix ms" : "Unix");
         }
@@ -221,13 +229,21 @@ public static class CalcDateTime
         var unix = Regex.Match(query, @"^unix\s+(-?\d+)(\s+ms)?(?:\s+to\s+date)?$");
         if (unix.Success)
         {
-            var n = long.Parse(unix.Groups[1].Value, CultureInfo.InvariantCulture);
-            var dto = unix.Groups[2].Success
-                ? DateTimeOffset.FromUnixTimeMilliseconds(n)
-                : DateTimeOffset.FromUnixTimeSeconds(n);
-            var local = TimeZoneInfo.ConvertTime(dto, ctx.TimeZone).DateTime;
-            var text = local.ToString("d MMMM yyyy HH:mm", CultureInfo.InvariantCulture);
-            return Ok(echo, text, text, "Unix", WeekdayName(local));
+            if (!long.TryParse(unix.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
+                return null;
+            try
+            {
+                var dto = unix.Groups[2].Success
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(n)
+                    : DateTimeOffset.FromUnixTimeSeconds(n);
+                var local = TimeZoneInfo.ConvertTime(dto, ctx.TimeZone).DateTime;
+                var text = local.ToString("d MMMM yyyy HH:mm", CultureInfo.InvariantCulture);
+                return Ok(echo, text, text, "Unix", WeekdayName(local));
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return null;
+            }
         }
 
         if (DateTimeOffset.TryParse(query.Replace(" to date", "", StringComparison.OrdinalIgnoreCase),
@@ -356,8 +372,14 @@ public static class CalcDateTime
         moment = day.Date.AddHours(hour).AddMinutes(minute).AddSeconds(second);
         if (bias == Bias.Future && moment <= day)
             moment = moment.AddDays(1);
-        if (bias == Bias.Past && moment >= day)
+        else if (bias == Bias.Past && moment >= day)
             moment = moment.AddDays(-1);
+        else if (bias == Bias.Nearest)
+        {
+            var today = moment;
+            moment = new[] { today.AddDays(-1), today, today.AddDays(1) }
+                .MinBy(m => Math.Abs((m - day).Ticks));
+        }
         return true;
     }
 
@@ -366,46 +388,82 @@ public static class CalcDateTime
         result = from;
         outTime = hasTime;
         text = text.Trim();
-        if (Regex.IsMatch(text, @"^\d+$") && hasTime)
+        if (Regex.IsMatch(text, @"^\d+$"))
         {
-            result = from.AddHours(int.Parse(text, CultureInfo.InvariantCulture));
-            return true;
-        }
+            if (!double.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bare)
+                || !double.IsFinite(bare))
+                return false;
+            try
+            {
+                result = hasTime ? from.AddHours(bare) : from.AddDays(bare);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
 
-        if (Regex.IsMatch(text, @"^\d+$") && !hasTime)
-        {
-            result = from.AddDays(int.Parse(text, CultureInfo.InvariantCulture));
             return true;
         }
 
         var match = Regex.Match(text, @"^(\d+(?:\.\d+)?)\s*(work\s*days?|business\s*days?|weekdays?|working\s*days?|months?|years?|weeks?|days?|hours?|hrs?|h|minutes?|mins?|min|seconds?|secs?|s)$");
         if (!match.Success)
             return false;
-        var n = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+            || !double.IsFinite(n))
+            return false;
         var unit = match.Groups[2].Value.Replace(" ", "");
         if (unit.StartsWith("work") || unit.StartsWith("business") || unit.StartsWith("weekday") || unit.StartsWith("working"))
         {
-            if (n != Math.Truncate(n))
+            if (n != Math.Truncate(n) || n is < int.MinValue or > int.MaxValue)
                 return false;
-            result = AddBusinessDays(from, (int)n);
+            try { result = AddBusinessDays(from, (int)n); }
+            catch (ArgumentOutOfRangeException) { return false; }
+            catch (OverflowException) { return false; }
             outTime = false;
             return true;
         }
 
-        result = unit[0] switch
+        try
         {
-            'y' => from.AddYears((int)n),
-            'm' when unit.StartsWith("month") => from.AddMonths((int)n),
-            'w' => from.AddDays(7 * n),
-            'd' => from.AddDays(n),
-            'h' => from.AddHours(n),
-            's' => from.AddSeconds(n),
-            _ => unit.StartsWith("min") ? from.AddMinutes(n) : from,
-        };
+            result = unit[0] switch
+            {
+                'y' => from.AddYears(WholeCount(n)),
+                'm' when unit.StartsWith("month") => from.AddMonths(WholeCount(n)),
+                'w' => from.AddDays(7 * n),
+                'd' => from.AddDays(n),
+                'h' => from.AddHours(n),
+                's' => from.AddSeconds(n),
+                _ => unit.StartsWith("min") ? from.AddMinutes(n) : from,
+            };
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+
         outTime = unit[0] is 'h' or 's' || unit.StartsWith("min") || hasTime;
         if (unit.StartsWith("month") || unit[0] == 'y')
             outTime = hasTime;
         return true;
+    }
+
+    static int WholeCount(double n)
+    {
+        if (n is < int.MinValue or > int.MaxValue)
+            throw new OverflowException();
+        return (int)n;
+    }
+
+    static long FloorDiv(long value, long divisor)
+    {
+        var q = value / divisor;
+        if (value < 0 && q * divisor != value)
+            q--;
+        return q;
     }
 
     static DateTime AddBusinessDays(DateTime start, int days)

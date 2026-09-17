@@ -1,4 +1,5 @@
 using Microsoft.UI.Dispatching;
+using Tinycast.Platform;
 
 namespace Tinycast;
 
@@ -20,12 +21,25 @@ public sealed class DialogPresenter
         var pending = new TaskCompletionSource<int>();
         _pending = pending;
 
-        _core.PaletteWindow?.DispatcherQueue.TryEnqueue(() =>
+        var queue = _core.PaletteWindow?.DispatcherQueue;
+        if (queue is null || !queue.TryEnqueue(() =>
         {
-            _window = new DialogWindow(_core, request, Finish);
-            _core.ApplyAppearance(_window);
-            _window.Activate();
-        });
+            try
+            {
+                _window = new DialogWindow(_core, request, Finish);
+                _core.ApplyAppearance(_window);
+                _window.Activate();
+            }
+            catch (Exception ex)
+            {
+                Log.Write("dialog: " + ex.Message);
+                Finish(request.CancelIndex);
+            }
+        }))
+        {
+            _pending = null;
+            return Task.FromResult(request.CancelIndex);
+        }
 
         return pending.Task;
     }

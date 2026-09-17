@@ -41,7 +41,7 @@ public sealed class OpenCodeClient : IDisposable
         await ThrowIfAuthAsync(response, "provider.list");
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(token);
-        using var doc = JsonDocument.Parse(body);
+        using var doc = ParseJson(body);
 
         var connected = new List<string>();
         if (doc.RootElement.TryGetProperty("connected", out var conn) && conn.ValueKind == JsonValueKind.Array)
@@ -123,7 +123,7 @@ public sealed class OpenCodeClient : IDisposable
         var body = await response.Content.ReadAsStringAsync(token);
         if (!response.IsSuccessStatusCode)
             throw new OpenCodeException("session.create", "OpenCode HTTP " + (int)response.StatusCode + ": " + Truncate(body));
-        using var doc = JsonDocument.Parse(body);
+        using var doc = ParseJson(body);
         // SDK returns the session object directly.
         if (doc.RootElement.ValueKind == JsonValueKind.Object
             && doc.RootElement.TryGetProperty("id", out var id)
@@ -288,6 +288,18 @@ public sealed class OpenCodeClient : IDisposable
             try { body = await response.Content.ReadAsStringAsync(); } catch (Exception) { }
             throw new OpenCodeException(operation,
                 "OpenCode server rejected authentication. Check the server URL and password. " + Truncate(body));
+        }
+    }
+
+    static JsonDocument ParseJson(string body)
+    {
+        try
+        {
+            return JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("OpenCode returned a non-JSON response.");
         }
     }
 

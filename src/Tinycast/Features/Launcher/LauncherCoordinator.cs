@@ -22,6 +22,38 @@ public sealed class LauncherCoordinator
 
     public LauncherCoordinator(AppCore core) => _core = core;
 
+    public void RevealApplication(AppEntry app)
+    {
+        if (string.IsNullOrWhiteSpace(app.Path))
+            return;
+        if (!Path.IsPathFullyQualified(app.Path) && app.Path.Contains('!', StringComparison.Ordinal))
+            ProcessLauncher.Open("shell:AppsFolder\\" + app.Path);
+        else
+            FileSearchService.Reveal(app.Path);
+    }
+
+    public async Task RestartApplicationAsync(AppEntry app)
+    {
+        var result = await _core.AppProcesses.RestartAsync(app);
+        ReportProcessResult(result);
+    }
+
+    public async Task QuitApplicationAsync(AppEntry app)
+    {
+        var result = await _core.AppProcesses.QuitAsync(app);
+        ReportProcessResult(result);
+    }
+
+    void ReportProcessResult(AppProcessResult result)
+    {
+        if (result is AppProcessResult.UnsupportedIdentity or AppProcessResult.IdentityUnavailable)
+            _core.ShowMessage("This application's process identity could not be verified.", DialogTone.Neutral);
+        else if (result == AppProcessResult.TimedOut)
+            _core.ShowMessage("Application is still running. No replacement was launched.", DialogTone.Neutral);
+        else if (result == AppProcessResult.Failed)
+            _core.ShowMessage("Application could not be closed safely.", DialogTone.Neutral);
+    }
+
     public IReadOnlyList<PaletteRow> Rows(string query)
     {
         return _core.Palette.Mode switch

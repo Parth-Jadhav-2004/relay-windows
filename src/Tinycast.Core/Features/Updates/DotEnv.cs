@@ -40,11 +40,56 @@ public static class DotEnv
 
     static string Unquote(string value)
     {
-        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
-            return value[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal);
-        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
-            return value[1..^1];
-        var comment = value.IndexOf(" #", StringComparison.Ordinal);
-        return comment >= 0 ? value[..comment].TrimEnd() : value;
+        var stripped = StripUnquotedComment(value).TrimEnd();
+        if (stripped.Length >= 2 && stripped[0] == '"' && stripped[^1] == '"')
+            return stripped[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal);
+        if (stripped.Length >= 2 && stripped[0] == '\'' && stripped[^1] == '\'')
+            return stripped[1..^1];
+        return stripped;
+    }
+
+    static string StripUnquotedComment(string value)
+    {
+        var inSingle = false;
+        var inDouble = false;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (inDouble)
+            {
+                if (c == '\\' && i + 1 < value.Length)
+                {
+                    i++;
+                    continue;
+                }
+                if (c == '"')
+                    inDouble = false;
+                continue;
+            }
+
+            if (inSingle)
+            {
+                if (c == '\'')
+                    inSingle = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inDouble = true;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                inSingle = true;
+                continue;
+            }
+
+            if (c == '#' && (i == 0 || char.IsWhiteSpace(value[i - 1])))
+                return value[..i];
+        }
+
+        return value;
     }
 }

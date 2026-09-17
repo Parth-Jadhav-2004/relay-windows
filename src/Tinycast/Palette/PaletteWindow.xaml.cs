@@ -888,7 +888,7 @@ public sealed partial class PaletteWindow : Window
             AddAppAction("Show in Explorer", () =>
             {
                 _core.PaletteCoordinator.HidePalette(restoreFocus: false);
-                AppProcess.Reveal(app);
+                _core.LauncherCoordinator.RevealApplication(app);
             });
             AddAppAction(_core.Favorites.IsFavorite(app.Id) ? "Remove Favorite" : "Add Favorite", () =>
             {
@@ -905,13 +905,13 @@ public sealed partial class PaletteWindow : Window
             });
             AddAppAction("Restart", () =>
             {
-                _core.PaletteCoordinator.HidePalette();
-                AppProcess.Restart(app);
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                _ = _core.LauncherCoordinator.RestartApplicationAsync(app);
             });
             AddAppAction("Quit", () =>
             {
-                _core.PaletteCoordinator.HidePalette();
-                AppProcess.Quit(app);
+                _core.PaletteCoordinator.HidePalette(restoreFocus: false);
+                _ = _core.LauncherCoordinator.QuitApplicationAsync(app);
             });
             AddAppAction("Uninstall leftovers", () =>
                 _core.PaletteCoordinator.ShowPalette(PaletteMode.Uninstall, seeding: app.Title));

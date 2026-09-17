@@ -112,19 +112,27 @@ public static class CalcUnits
 
     public static UnitDef? BaseUnit(CalcDimension dim)
     {
+        UnitDef? best = null;
         foreach (var unit in Index.Value.Exact.Values)
         {
-            if (unit.Dimension == dim && Math.Abs(unit.Factor - 1) < 1e-12 && unit.Offset == 0)
-                return unit;
+            if (unit.Dimension != dim)
+                continue;
+            if (best is null || BetterBase(unit, best))
+                best = unit;
         }
 
-        foreach (var unit in Index.Value.Exact.Values)
-        {
-            if (unit.Dimension == dim)
-                return unit;
-        }
+        return best;
+    }
 
-        return null;
+    static bool BetterBase(UnitDef candidate, UnitDef current)
+    {
+        var candBase = Math.Abs(candidate.Factor - 1) < 1e-12 && candidate.Offset == 0;
+        var currBase = Math.Abs(current.Factor - 1) < 1e-12 && current.Offset == 0;
+        if (candBase != currBase)
+            return candBase;
+        if (candidate.Name.Length != current.Name.Length)
+            return candidate.Name.Length < current.Name.Length;
+        return string.CompareOrdinal(candidate.Name, current.Name) < 0;
     }
 
     public static UnitDef? ProductUnit(UnitDef left, UnitDef right)

@@ -22,12 +22,10 @@ public static class DateBuckets
         if (local.Date == current.Date.AddDays(-1))
             return DateBucket.Yesterday;
 
-        var culture = CultureInfo.CurrentCulture;
-        var cal = culture.Calendar;
-        var rule = culture.DateTimeFormat.CalendarWeekRule;
-        var first = culture.DateTimeFormat.FirstDayOfWeek;
-        if (local.Year == current.Year
-            && cal.GetWeekOfYear(local, rule, first) == cal.GetWeekOfYear(current, rule, first))
+        var first = CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
+        var delta = ((int)current.DayOfWeek - (int)first + 7) % 7;
+        var weekStart = current.Date.AddDays(-delta);
+        if (local.Date >= weekStart && local.Date < weekStart.AddDays(7))
             return DateBucket.ThisWeek;
         if (local.Year == current.Year && local.Month == current.Month)
             return DateBucket.ThisMonth;

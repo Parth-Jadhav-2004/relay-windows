@@ -41,7 +41,12 @@ internal sealed class TrayIcon : IDisposable
     {
         if (_added)
             return;
-        NativeMethods.Shell_NotifyIcon(NativeMethods.NimAdd, ref _data);
+        if (!NativeMethods.Shell_NotifyIcon(NativeMethods.NimAdd, ref _data))
+        {
+            Log.Write("Shell_NotifyIcon add err=" + Marshal.GetLastWin32Error());
+            return;
+        }
+
         _added = true;
     }
 
@@ -55,6 +60,13 @@ internal sealed class TrayIcon : IDisposable
 
     public bool HandleMessage(uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (msg == NativeMethods.TaskbarCreated)
+        {
+            _added = false;
+            Add();
+            return true;
+        }
+
         if (msg == NativeMethods.WmTray)
         {
             var eventId = lParam.ToInt32() & 0xFFFF;

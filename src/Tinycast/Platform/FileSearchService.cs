@@ -21,7 +21,10 @@ internal static class FileSearchService
                 if (drive.IsReady)
                     label = string.IsNullOrWhiteSpace(drive.VolumeLabel) ? null : drive.VolumeLabel;
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                Log.Write("volume label: " + ex.Message);
+            }
 
             rows.Add(new FileSearchResult(
                 drive.Name,
@@ -48,7 +51,11 @@ internal static class FileSearchService
                     continue;
                 bool isDir;
                 try { isDir = Directory.Exists(entry) && File.GetAttributes(entry).HasFlag(FileAttributes.Directory); }
-                catch (Exception) { continue; }
+                catch (Exception ex)
+                {
+                    Log.Write("file entry: " + ex.Message);
+                    continue;
+                }
 
                 if ((File.GetAttributes(entry) & (FileAttributes.Hidden | FileAttributes.System)) != 0)
                     continue;

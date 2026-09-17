@@ -49,10 +49,16 @@ public static class SettingsSnapshot
 
     public static void ApplyMirrored(AppSettings settings, IReadOnlyDictionary<string, string> data)
     {
-        foreach (var (key, value) in data)
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(data);
+        var mirrored = data.Where(kv => SettingsBackupCoverage.Mirrored.Contains(kv.Key)).ToArray();
+        foreach (var (key, value) in mirrored)
         {
-            if (!SettingsBackupCoverage.Mirrored.Contains(key))
-                continue;
+            if (!IsValid(key, value))
+                throw new InvalidDataException($"Invalid backup setting: {key}.");
+        }
+        foreach (var (key, value) in mirrored)
+        {
             switch (key)
             {
                 case AppSettingsKey.Appearance:
@@ -159,8 +165,35 @@ public static class SettingsSnapshot
         }
     }
 
+    static bool IsValid(string key, string? value)
+    {
+        if (value is null)
+            return false;
+        return key switch
+        {
+            AppSettingsKey.Appearance => Enum.TryParse<AppAppearance>(value, true, out var appearance) && Enum.IsDefined(appearance),
+            AppSettingsKey.PaletteTransparency or AppSettingsKey.WindowGap or AppSettingsKey.EmojiColumns
+                or AppSettingsKey.ClipboardRetentionDays or AppSettingsKey.EmojiSkinTone
+                or AppSettingsKey.PalettePopToRootSeconds => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
+            AppSettingsKey.PaletteLeft or AppSettingsKey.PaletteTop =>
+                double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var coordinate) && double.IsFinite(coordinate),
+            AppSettingsKey.InterfaceSize => value is "compact" or "standard" or "large",
+            AppSettingsKey.WindowCycle => value is "Off" or "Sizes" or "Displays",
+            AppSettingsKey.ClipboardDefaultAction => value is "paste" or "copy",
+            AppSettingsKey.FileSearchScopes or AppSettingsKey.FileSearchIgnorePatterns
+                or AppSettingsKey.ClipboardIgnoredApps or AppSettingsKey.CalendarExcludedIds
+                or AppSettingsKey.NavigationExcludedApps => true,
+            AppSettingsKey.ShowInTray or AppSettingsKey.ClipboardEnabled or AppSettingsKey.WindowManagementEnabled
+                or AppSettingsKey.FileSearchEnabled or AppSettingsKey.NotesEnabled or AppSettingsKey.QuicklinksEnabled
+                or AppSettingsKey.CustomCommandsEnabled or AppSettingsKey.NavigationEnabled or AppSettingsKey.ClipboardOcrEnabled
+                or AppSettingsKey.ClipboardKeepOpen or AppSettingsKey.CompactPalette or AppSettingsKey.PaletteRememberPosition
+                or AppSettingsKey.PaletteEscapeClearsQuery => bool.TryParse(value, out _) || value is "0" or "1",
+            _ => false,
+        };
+    }
+
     static string Flag(bool value) => value ? "true" : "false";
-    static bool IsTrue(string value) => value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1";
+    static bool IsTrue(string value) => (bool.TryParse(value, out var flag) && flag) || value == "1";
     static List<string> Lines(string value) =>
         value.Split(['\n', '\r', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 }

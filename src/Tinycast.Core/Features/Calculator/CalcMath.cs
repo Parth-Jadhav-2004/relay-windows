@@ -138,7 +138,6 @@ public static class CalcMath
                             : Math.Pow(first, 1 / second);
                         break;
                     case "fmod":
-                        result = Math.IEEERemainder(first, second);
                         result = first - second * Math.Truncate(first / second);
                         break;
                     default:
@@ -198,30 +197,27 @@ public static class CalcMath
             default:
                 if (ExactInteger(right) is not { } rhs)
                     return null;
+                if (op is "<<" or ">>")
+                {
+                    if (rhs is < 0 or > 63)
+                        return null;
+                    result = op == "<<" ? lhs << (int)rhs : lhs >> (int)rhs;
+                    if (op is "<<" && result >> (int)rhs != lhs)
+                        return null;
+                    break;
+                }
+
                 result = op switch
                 {
                     "&" => lhs & rhs,
                     "|" => lhs | rhs,
                     "xor" or "⊻" => lhs ^ rhs,
-                    "<<" => rhs is < 0 or > 63 ? 0 : ShiftLeft(lhs, rhs),
-                    ">>" => rhs is < 0 or > 63 ? 0 : lhs >> (int)rhs,
                     _ => 0,
                 };
-                if (op is "<<" && (rhs is < 0 or > 63 || result >> (int)rhs != lhs))
-                    return null;
-                if (op is ">>" && rhs is < 0 or > 63)
-                    return null;
                 break;
         }
 
         var value = (double)result;
         return Math.Abs(value) < CalcFormatter.MaxExactInteger ? value : null;
-    }
-
-    static long ShiftLeft(long lhs, long rhs)
-    {
-        if (rhs is < 0 or > 63)
-            throw new OverflowException();
-        return lhs << (int)rhs;
     }
 }

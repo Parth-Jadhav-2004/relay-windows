@@ -60,6 +60,17 @@ internal static partial class NativeMethods
     [DllImport("shell32.dll", EntryPoint = "#727")]
     public static extern int SHGetImageList(int iImageList, ref Guid riid, out IImageList ppv);
 
+    public static bool TryGetImageList(int iImageList, out IImageList? list)
+    {
+        list = null;
+        var iid = IidIImageList;
+        var hr = SHGetImageList(iImageList, ref iid, out var images);
+        if (hr < 0 || images is null)
+            return false;
+        list = images;
+        return true;
+    }
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     public static extern int SHDefExtractIcon(
         string pszIconFile, int iIndex, uint uFlags, out IntPtr phiconLarge, IntPtr phiconSmall, uint nIconSize);

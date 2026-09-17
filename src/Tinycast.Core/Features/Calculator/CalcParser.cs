@@ -50,7 +50,19 @@ public static class CalcParser
 
             return value;
         }
-        catch (Exception)
+        catch (OverflowException)
+        {
+            return null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
         {
             return null;
         }
@@ -126,7 +138,15 @@ public static class CalcParser
         if (currency is not null)
         {
             if (value.Kind == CalcValueKind.Number)
-                return ConvertMoney(value.Amount, region ?? "USD", currency.Code, rates, out error);
+            {
+                if (string.IsNullOrWhiteSpace(region))
+                {
+                    error = "Specify a source currency.";
+                    return null;
+                }
+
+                return ConvertMoney(value.Amount, region, currency.Code, rates, out error);
+            }
             if (value.Kind == CalcValueKind.Currency && value.CurrencyCode is not null)
                 return ConvertMoney(value.Amount, value.CurrencyCode, currency.Code, rates, out error);
             if (value.Kind == CalcValueKind.Quantity)
@@ -213,7 +233,7 @@ public static class CalcParser
             {
                 if (Peek?.Kind == CalcTokenKind.Operator && Peek.Text == "!" )
                 {
-                    if (6 < minBp)
+                    if (Binding("!").lbp < minBp)
                         break;
                     Advance();
                     var fact = CalcMath.Factorial(left.Scalar);
@@ -280,7 +300,7 @@ public static class CalcParser
                 if (Peek?.Kind != CalcTokenKind.Operator)
                     break;
                 var op = Peek.Text;
-                var (lbp, rbp, rightAssoc) = Binding(op);
+                var (lbp, rbp) = Binding(op);
                 if (lbp < minBp)
                     break;
                 if (op is "to")
@@ -288,7 +308,7 @@ public static class CalcParser
                 Advance();
                 if (AtEnd && IsBinary(op))
                     return left;
-                var right = ParseExpression(rightAssoc ? rbp : rbp);
+                var right = ParseExpression(rbp);
                 if (right is null)
                     return left is not null && IsBinary(op) && AtEnd ? left : Fail();
                 left = Apply(op, left, right);
@@ -357,7 +377,7 @@ public static class CalcParser
             if (tok.Kind == CalcTokenKind.Operator && tok.Text is "+" or "-" or "~")
             {
                 Advance();
-                var inner = ParseExpression(Binding(tok.Text).rbp + (tok.Text == "~" ? 0 : 0) + 7);
+                var inner = ParseExpression(Binding(tok.Text).rbp);
                 if (inner is null)
                     return null;
                 return tok.Text switch
@@ -781,18 +801,19 @@ public static class CalcParser
                 l = CalcUnits.ToBase(left.Amount, left.Unit);
                 r = CalcUnits.ToBase(right.Amount, right.Unit);
             }
-            else if (left.Kind == CalcValueKind.Number && right.Kind == CalcValueKind.Number)
+            else if (left.Kind is CalcValueKind.Number or CalcValueKind.Percent
+                && right.Kind is CalcValueKind.Number or CalcValueKind.Percent)
             {
-                l = left.Amount;
-                r = right.Amount;
+                l = left.Scalar;
+                r = right.Scalar;
             }
             else
                 return Fail();
 
             var ok = op switch
             {
-                "==" => Math.Abs(l - r) < 1e-9,
-                "!=" => Math.Abs(l - r) >= 1e-9,
+                "==" => AlmostEqual(l, r),
+                "!=" => !AlmostEqual(l, r),
                 "<" => l < r,
                 "<=" => l <= r,
                 ">" => l > r,
@@ -816,21 +837,24 @@ public static class CalcParser
             return null;
         }
 
+        static bool AlmostEqual(double l, double r) =>
+            Math.Abs(l - r) <= 1e-9 * Math.Max(1.0, Math.Max(Math.Abs(l), Math.Abs(r)));
+
         static bool IsBinary(string op) => op is "+" or "-" or "*" or "/" or "^" or "mod" or "&" or "|" or "xor" or "<<" or ">>";
 
-        static (int lbp, int rbp, bool right) Binding(string op) => op switch
+        static (int lbp, int rbp) Binding(string op) => op switch
         {
-            "||" or "|" => (2, 2, false),
-            "xor" => (3, 3, false),
-            "&" => (4, 4, false),
-            "==" or "!=" or "<" or "<=" or ">" or ">=" => (5, 5, false),
-            "<<" or ">>" => (6, 6, false),
-            "+" or "-" => (7, 7, false),
-            "*" or "/" or "mod" or "%" => (8, 8, false),
-            "^" => (9, 8, true),
-            "~" or "!" => (10, 10, false),
-            "to" or "->" => (1, 1, false),
-            _ => (0, 0, false),
+            "||" or "|" => (2, 2),
+            "xor" => (3, 3),
+            "&" => (4, 4),
+            "==" or "!=" or "<" or "<=" or ">" or ">=" => (5, 5),
+            "<<" or ">>" => (6, 6),
+            "+" or "-" => (7, 7),
+            "*" or "/" or "mod" or "%" => (8, 8),
+            "^" => (9, 8),
+            "~" or "!" => (10, 10),
+            "to" or "->" => (1, 1),
+            _ => (0, 0),
         };
     }
 }

@@ -94,9 +94,54 @@ public sealed record HotKeyChord(uint Modifiers, uint VirtualKey)
             if ((Modifiers & 0x0001) != 0) parts.Add("Alt");
             if ((Modifiers & 0x0004) != 0) parts.Add("Shift");
             if ((Modifiers & 0x0008) != 0) parts.Add("Win");
-            parts.Add(VirtualKey == 0x20 ? "Space" : ((char)VirtualKey).ToString());
+            parts.Add(KeyName(VirtualKey));
             return string.Join("+", parts);
         }
+    }
+
+    static string KeyName(uint vk)
+    {
+        if (vk == 0x20)
+            return "Space";
+        if (vk is >= 0x30 and <= 0x39)
+            return ((char)vk).ToString();
+        if (vk is >= 0x41 and <= 0x5A)
+            return ((char)vk).ToString();
+        if (vk is >= 0x70 and <= 0x87)
+            return "F" + (vk - 0x6F);
+        return vk switch
+        {
+            0x08 => "Backspace",
+            0x09 => "Tab",
+            0x0D => "Enter",
+            0x1B => "Esc",
+            0x21 => "PageUp",
+            0x22 => "PageDown",
+            0x23 => "End",
+            0x24 => "Home",
+            0x25 => "Left",
+            0x26 => "Up",
+            0x27 => "Right",
+            0x28 => "Down",
+            0x2D => "Insert",
+            0x2E => "Delete",
+            0x6B => "Plus",
+            0x6D => "Minus",
+            0xBA => "Oem1",
+            0xBB => "OemPlus",
+            0xBC => "OemComma",
+            0xBD => "OemMinus",
+            0xBE => "OemPeriod",
+            0xBF => "Oem2",
+            0xC0 => "Oem3",
+            0xDB => "Oem4",
+            0xDC => "Oem5",
+            0xDD => "Oem6",
+            0xDE => "Oem7",
+            0xDF => "Oem8",
+            0xE2 => "Oem102",
+            _ => $"Vk0x{vk:X2}",
+        };
     }
 }
 
@@ -121,7 +166,7 @@ public static class HotKeyConflicts
             {
                 var a = bindings[i];
                 var b = bindings[j];
-                if (!string.Equals(a.AppPath ?? "", b.AppPath ?? "", StringComparison.OrdinalIgnoreCase))
+                if (!ScopesOverlap(a.AppPath, b.AppPath))
                     continue;
                 if (a.Chord is { } ca && b.Chord is { } cb && ca == cb)
                     hits.Add((a, b));
@@ -131,5 +176,14 @@ public static class HotKeyConflicts
         }
 
         return hits;
+    }
+
+    static bool ScopesOverlap(string? a, string? b)
+    {
+        var left = a ?? "";
+        var right = b ?? "";
+        if (left.Length == 0 || right.Length == 0)
+            return true;
+        return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 }

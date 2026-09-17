@@ -80,7 +80,12 @@ internal static partial class NativeMethods
 
     public delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint RegisterWindowMessage(string lpString);
+
+    public static readonly uint TaskbarCreated = RegisterWindowMessage("TaskbarCreated");
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
@@ -151,13 +156,13 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool Shell_NotifyIcon(uint dwMessage, ref NotifyIconData lpData);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr LoadImage(IntPtr hInst, string name, uint type, int cx, int cy, uint fuLoad);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadImageW")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadImageW", SetLastError = true)]
     public static extern IntPtr LoadImageResource(IntPtr hInst, IntPtr name, uint type, int cx, int cy, uint fuLoad);
 
     [DllImport("user32.dll")]

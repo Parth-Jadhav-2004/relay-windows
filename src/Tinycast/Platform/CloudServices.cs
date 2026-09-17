@@ -49,6 +49,15 @@ public sealed class AiConfig
 
 public static class AiClient
 {
+    static readonly HttpClient Http = CreateHttp();
+
+    static HttpClient CreateHttp()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Tinycast/0.1");
+        return client;
+    }
+
     public static AiConfig Load()
     {
         try
@@ -71,27 +80,40 @@ public static class AiClient
 
     public static async Task<string> Complete(IReadOnlyList<AiChatMessage> messages, string apiKey, AiConfig config, CancellationToken token = default)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer " + apiKey);
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Tinycast/0.1");
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("AI API key is missing.");
         var payload = new
         {
             model = config.Model,
             messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToArray(),
         };
-        using var response = await client.PostAsync(
-            config.Endpoint,
-            new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json"),
-            token);
+        using var request = new HttpRequestMessage(HttpMethod.Post, config.Endpoint)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey);
+        using var response = await Http.SendAsync(request, token);
         var body = await response.Content.ReadAsStringAsync(token);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException("AI HTTP " + (int)response.StatusCode + ": " + Truncate(body));
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+        JsonDocument doc;
+        try
         {
-            var message = choices[0].GetProperty("message").GetProperty("content").GetString();
-            if (!string.IsNullOrWhiteSpace(message))
-                return message.Trim();
+            doc = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("AI returned a non-JSON response.");
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+            {
+                var message = choices[0].GetProperty("message").GetProperty("content").GetString();
+                if (!string.IsNullOrWhiteSpace(message))
+                    return message.Trim();
+            }
         }
 
         throw new InvalidOperationException("AI response had no content.");
@@ -114,13 +136,16 @@ internal static class CalendarService
                 var startLocal = a.StartTime.LocalDateTime;
                 var end = startLocal + a.Duration;
                 var link = MeetingLink.Detect([a.Subject, a.Location, a.Details]);
-                return new MeetingEvent(a.LocalId ?? Guid.NewGuid().ToString("n"), a.Subject ?? "Event", startLocal, end, link, a.AllDay, a.CalendarId);
+                var id = string.IsNullOrWhiteSpace(a.LocalId)
+                    ? "cal:" + (a.CalendarId ?? "") + ":" + a.StartTime.UtcTicks + ":" + (a.Subject ?? "") + ":" + a.AllDay
+                    : a.LocalId;
+                return new MeetingEvent(id, a.Subject ?? "Event", startLocal, end, link, a.AllDay, a.CalendarId);
             }).ToList();
         }
         catch (Exception ex)
         {
             Log.Write("calendar: " + ex.Message);
-            return [];
+            throw new InvalidOperationException("Calendar access failed: " + ex.Message, ex);
         }
     }
 }

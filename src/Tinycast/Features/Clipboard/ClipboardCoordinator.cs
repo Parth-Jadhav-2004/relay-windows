@@ -24,8 +24,10 @@ public sealed class ClipboardCoordinator
             return [new PaletteRow("clip-off", "Clipboard history is off", "Enable it in Settings → Clipboard", "\uE16D")];
 
         var now = DateTime.Now;
-        return _core.ClipboardStore.Search(query)
+        var searchLimit = Filter == ClipboardListFilter.All ? 80 : 2000;
+        return _core.ClipboardStore.Search(query, searchLimit)
             .Where(item => ClipboardListFilterLogic.Matches(item, Filter))
+            .Take(80)
             .Select(item => ToRow(item, now))
             .ToList();
     }
@@ -67,16 +69,11 @@ public sealed class ClipboardCoordinator
         var previous = TargetHwnd();
         if (copy)
         {
-            Copy(item);
-            if (!_core.Settings.ClipboardKeepOpen)
-                _core.PaletteCoordinator.HidePalette(restoreFocus: true);
-            _core.ShowMessage("Copied");
+            _ = CopyActivateAsync(item);
             return true;
         }
 
-        if (!_core.Settings.ClipboardKeepOpen)
-            _core.PaletteCoordinator.HidePalette(restoreFocus: true);
-        Paste(item, previous);
+        _ = PasteActivateAsync(item, previous);
         return true;
     }
 
@@ -88,21 +85,27 @@ public sealed class ClipboardCoordinator
         return Activate("clip:" + pinned[index].Id);
     }
 
-    public void Copy(ClipboardItem item)
+    public async void Copy(ClipboardItem item)
+    {
+        try
+        {
+            await CopyAsync(item);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("clipboard copy: " + ex.Message);
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    Task CopyAsync(ClipboardItem item)
     {
         if (item.Kind == ClipboardKind.Image && item.ImagePath is not null)
-        {
-            _ = _core.Clipboard.CopyImageAsync(item.ImagePath);
-            return;
-        }
-
+            return _core.Clipboard.CopyImageAsync(item.ImagePath);
         if (item.Kind == ClipboardKind.File && item.FilePath is not null)
-        {
-            _ = _core.Clipboard.CopyFileAsync(item.FilePath);
-            return;
-        }
-
+            return _core.Clipboard.CopyFileAsync(item.FilePath);
         _core.Clipboard.CopyText(item.Text);
+        return Task.CompletedTask;
     }
 
     public void HistoryChanged()
@@ -163,28 +166,59 @@ public sealed class ClipboardCoordinator
         return id.StartsWith("clip:", StringComparison.Ordinal) && long.TryParse(id[5..], out clipId);
     }
 
-    void Paste(ClipboardItem item, IntPtr previous)
+    async Task CopyActivateAsync(ClipboardItem item)
+    {
+        try
+        {
+            await CopyAsync(item);
+            if (!_core.Settings.ClipboardKeepOpen)
+                _core.PaletteCoordinator.HidePalette(restoreFocus: true);
+            _core.ShowMessage("Copied");
+        }
+        catch (Exception ex)
+        {
+            Log.Write("clipboard copy: " + ex.Message);
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    async Task PasteActivateAsync(ClipboardItem item, IntPtr previous)
+    {
+        try
+        {
+            if (!_core.Settings.ClipboardKeepOpen)
+                _core.PaletteCoordinator.HidePalette(restoreFocus: true);
+            await PasteAsync(item, previous);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("clipboard paste: " + ex.Message);
+            _core.ShowMessage(ex.Message, DialogTone.Danger);
+        }
+    }
+
+    Task PasteAsync(ClipboardItem item, IntPtr previous)
     {
         if (item.Kind == ClipboardKind.Text)
         {
             Paster.PasteText(item.Text, previous);
-            return;
+            return Task.CompletedTask;
         }
 
         if (item.Kind == ClipboardKind.File && item.FilePath is not null)
         {
-            if (!File.Exists(item.FilePath))
+            if (!File.Exists(item.FilePath) && !Directory.Exists(item.FilePath))
             {
                 _core.ShowMessage("That file is no longer there.", DialogTone.Danger);
-                return;
+                return Task.CompletedTask;
             }
 
-            _ = PasteFileAsync(item.FilePath, previous);
-            return;
+            return PasteFileAsync(item.FilePath, previous);
         }
 
         if (item.Kind == ClipboardKind.Image && item.ImagePath is not null)
-            _ = PasteImageAsync(item.ImagePath, previous);
+            return PasteImageAsync(item.ImagePath, previous);
+        return Task.CompletedTask;
     }
 
     async Task PasteImageAsync(string path, IntPtr previous)

@@ -32,30 +32,55 @@ public sealed class ClipboardStore : IDisposable
         Directory.CreateDirectory(_imageRoot);
         var dbPath = Path.Combine(directory, "clipboard.sqlite");
         _db = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Pooling=False;Cache=Shared");
-        _db.Open();
-        using (var pragmas = _db.CreateCommand())
+        try
         {
-            pragmas.CommandText = "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;";
-            pragmas.ExecuteNonQuery();
+            _db.Open();
+            using (var pragmas = _db.CreateCommand())
+            {
+                pragmas.CommandText = "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;";
+                pragmas.ExecuteNonQuery();
+            }
+            using (var cmd = _db.CreateCommand())
+            {
+                cmd.CommandText = """
+                    CREATE TABLE IF NOT EXISTS items (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      kind TEXT NOT NULL,
+                      text TEXT NOT NULL DEFAULT '',
+                      image_path TEXT,
+                      file_path TEXT,
+                      created_at TEXT NOT NULL,
+                      pinned INTEGER NOT NULL DEFAULT 0,
+                      ocr_text TEXT
+                    );
+                    CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(text, ocr_text, content='items', content_rowid='id');
+                    """;
+                cmd.ExecuteNonQuery();
+            }
+            EnsureColumn("source_id", "TEXT");
+            EnsureSearchIndex();
         }
-        using (var cmd = _db.CreateCommand())
+        catch
         {
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS items (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  kind TEXT NOT NULL,
-                  text TEXT NOT NULL DEFAULT '',
-                  image_path TEXT,
-                  file_path TEXT,
-                  created_at TEXT NOT NULL,
-                  pinned INTEGER NOT NULL DEFAULT 0,
-                  ocr_text TEXT
-                );
-                CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(text, ocr_text, content='items', content_rowid='id');
-                """;
+            _db.Dispose();
+            throw;
+        }
+    }
+
+    void EnsureSearchIndex()
+    {
+        const int SqliteCorrupt = 11;
+        using var cmd = _db.CreateCommand();
+        cmd.CommandText = "INSERT INTO items_fts(items_fts, rank) VALUES('integrity-check', 1)";
+        try
+        {
             cmd.ExecuteNonQuery();
         }
-        EnsureColumn("source_id", "TEXT");
+        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteCorrupt)
+        {
+            cmd.CommandText = "INSERT INTO items_fts(items_fts) VALUES('rebuild')";
+            cmd.ExecuteNonQuery();
+        }
     }
 
     void EnsureColumn(string name, string sqlType)
@@ -87,7 +112,9 @@ public sealed class ClipboardStore : IDisposable
     {
         lock (_gate)
         {
+        using var transaction = _db.BeginTransaction();
         using var cmd = _db.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             INSERT INTO items (kind, text, image_path, file_path, created_at, pinned, source_id)
             VALUES ($kind, $text, $image, $file, $created, 0, $source);
@@ -101,10 +128,11 @@ public sealed class ClipboardStore : IDisposable
         cmd.Parameters.AddWithValue("$source", (object?)sourceId ?? DBNull.Value);
         var id = (long)(cmd.ExecuteScalar() ?? 0L);
         using var fts = _db.CreateCommand();
-        fts.CommandText = "INSERT INTO items_fts(rowid, text, ocr_text) VALUES ($id, $text, '');";
+        fts.Transaction = transaction;
+        fts.CommandText = "INSERT INTO items_fts(rowid, text, ocr_text) SELECT id, text, ocr_text FROM items WHERE id = $id;";
         fts.Parameters.AddWithValue("$id", id);
-        fts.Parameters.AddWithValue("$text", text);
-        try { fts.ExecuteNonQuery(); } catch (SqliteException) { }
+        fts.ExecuteNonQuery();
+        transaction.Commit();
 
         return GetLocked(id) ?? new ClipboardItem
         {
@@ -141,23 +169,22 @@ public sealed class ClipboardStore : IDisposable
         }
 
         cmd.Parameters.AddWithValue("$limit", limit);
-        try
-        {
-            var hits = ReadAll(cmd);
-            if (hits.Count > 0 || string.IsNullOrWhiteSpace(query))
-                return hits;
-        }
-        catch (SqliteException)
-        {
-        }
+        var hits = ReadAll(cmd);
+        if (hits.Count > 0 || string.IsNullOrWhiteSpace(query))
+            return hits;
 
         using var fallback = _db.CreateCommand();
-        fallback.CommandText = "SELECT * FROM items WHERE text LIKE $like OR IFNULL(ocr_text,'') LIKE $like ORDER BY pinned DESC, created_at DESC LIMIT $limit";
-        fallback.Parameters.AddWithValue("$like", "%" + query + "%");
+        fallback.CommandText = "SELECT * FROM items WHERE text LIKE $like ESCAPE '\\' OR IFNULL(ocr_text,'') LIKE $like ESCAPE '\\' ORDER BY pinned DESC, created_at DESC LIMIT $limit";
+        fallback.Parameters.AddWithValue("$like", "%" + EscapeLike(query) + "%");
         fallback.Parameters.AddWithValue("$limit", limit);
         return ReadAll(fallback);
         }
     }
+
+    static string EscapeLike(string query) =>
+        query.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     public void PruneUnpinnedOlderThan(DateTime utcCutoff)
     {
@@ -217,23 +244,26 @@ public sealed class ClipboardStore : IDisposable
     {
         lock (_gate)
         {
-        string? imagePath = null;
+        using var transaction = _db.BeginTransaction();
+        string? imagePath;
         using (var lookup = _db.CreateCommand())
         {
+            lookup.Transaction = transaction;
             lookup.CommandText = "SELECT image_path FROM items WHERE id = $id";
             lookup.Parameters.AddWithValue("$id", id);
             imagePath = lookup.ExecuteScalar() as string;
         }
 
         using var cmd = _db.CreateCommand();
-        cmd.CommandText = "DELETE FROM items WHERE id = $id";
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            INSERT INTO items_fts(items_fts, rowid, text, ocr_text)
+                SELECT 'delete', id, text, ocr_text FROM items WHERE id = $id;
+            DELETE FROM items WHERE id = $id;
+            """;
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
-        using var fts = _db.CreateCommand();
-        fts.CommandText = "DELETE FROM items_fts WHERE rowid = $id";
-        fts.Parameters.AddWithValue("$id", id);
-        try { fts.ExecuteNonQuery(); } catch (SqliteException) { }
-
+        transaction.Commit();
         DeleteOwnedImage(imagePath);
         }
     }
@@ -242,24 +272,20 @@ public sealed class ClipboardStore : IDisposable
     {
         lock (_gate)
         {
+        using var transaction = _db.BeginTransaction();
         using var cmd = _db.CreateCommand();
-        cmd.CommandText = "UPDATE items SET ocr_text = $t WHERE id = $id";
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            INSERT INTO items_fts(items_fts, rowid, text, ocr_text)
+                SELECT 'delete', id, text, ocr_text FROM items WHERE id = $id;
+            UPDATE items SET ocr_text = $t WHERE id = $id;
+            INSERT INTO items_fts(rowid, text, ocr_text)
+                SELECT id, text, ocr_text FROM items WHERE id = $id;
+            """;
         cmd.Parameters.AddWithValue("$t", text);
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
-        using var del = _db.CreateCommand();
-        del.CommandText = "DELETE FROM items_fts WHERE rowid = $id";
-        del.Parameters.AddWithValue("$id", id);
-        try { del.ExecuteNonQuery(); } catch (SqliteException) { }
-        var item = GetLocked(id);
-        if (item is null)
-            return;
-        using var fts = _db.CreateCommand();
-        fts.CommandText = "INSERT INTO items_fts(rowid, text, ocr_text) VALUES ($id, $text, $ocr)";
-        fts.Parameters.AddWithValue("$id", id);
-        fts.Parameters.AddWithValue("$text", item.Text + " " + text);
-        fts.Parameters.AddWithValue("$ocr", text);
-        try { fts.ExecuteNonQuery(); } catch (SqliteException) { }
+        transaction.Commit();
         }
     }
 
@@ -286,7 +312,11 @@ public sealed class ClipboardStore : IDisposable
         {
             var full = Path.GetFullPath(imagePath);
             var root = Path.GetFullPath(_imageRoot);
-            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+            var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && !full.Equals(root, StringComparison.OrdinalIgnoreCase))
+                return;
+            if (!File.Exists(full))
                 return;
             File.Delete(full);
         }
@@ -300,7 +330,7 @@ public sealed class ClipboardStore : IDisposable
         var cleaned = new string(query.Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c)).ToArray()).Trim();
         if (cleaned.Length == 0)
             return "\"\"";
-        return string.Join(" AND ", cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(t => t + "*"));
+        return string.Join(" AND ", cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(t => "\"" + t + "\"*"));
     }
 
     static List<ClipboardItem> ReadAll(SqliteCommand cmd)
@@ -351,7 +381,9 @@ public sealed class ClipboardStore : IDisposable
         {
             using var cmd = _db.CreateCommand();
             cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-            try { cmd.ExecuteNonQuery(); } catch (SqliteException) { }
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read() || reader.GetInt64(0) != 0)
+                throw new IOException("Clipboard database checkpoint is busy.");
         }
     }
 }

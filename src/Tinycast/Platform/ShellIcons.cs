@@ -178,8 +178,7 @@ internal static class ShellIcons
             return IntPtr.Zero;
         try
         {
-            var iid = NativeMethods.IidIImageList;
-            if (NativeMethods.SHGetImageList(list, ref iid, out var images) != 0 || images is null)
+            if (!NativeMethods.TryGetImageList(list, out var images) || images is null)
                 return IntPtr.Zero;
             try
             {
@@ -346,6 +345,15 @@ internal static class ShellIcons
             var bytes = Math.Min(side, width - x0) * 4;
             if (bytes > 0)
                 System.Buffer.BlockCopy(bgra, src, cropped, dst, bytes);
+        }
+
+        if (!HasAlpha(bgra))
+        {
+            for (var i = 0; i < cropped.Length; i += 4)
+            {
+                if (IsInk(cropped, i, useRgb: true))
+                    cropped[i + 3] = 255;
+            }
         }
 
         return cropped;

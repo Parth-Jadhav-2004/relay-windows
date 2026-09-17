@@ -51,13 +51,14 @@ internal static class OpenCodeServerManager
     {
         try
         {
-            var baseName = Path.GetFileNameWithoutExtension(binary.Trim());
-            if (string.IsNullOrWhiteSpace(baseName))
-                baseName = "opencode";
-            // Prefer a real Win32 .exe: direct spawn with UseShellExecute=false
-            // cannot run .cmd shims or extensionless sh scripts (hermes/node
-            // installs put those on PATH). T3's resolveSpawnCommand uses a
-            // shell on Windows for the same reason.
+            binary = binary.Trim();
+            if (binary.Length == 0 || Path.IsPathRooted(binary) || binary != Path.GetFileName(binary))
+                return null;
+            var extension = Path.GetExtension(binary);
+            if (extension.Length != 0 && !extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                && !extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase))
+                return null;
+            var baseName = Path.GetFileNameWithoutExtension(binary);
             foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
             {
                 try
@@ -95,114 +96,98 @@ internal static class OpenCodeServerManager
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm", baseName + ".exe");
     }
 
-    /// <summary>
-    /// Follows a .cmd shim to its real exe (hermes pattern:
-    /// `"%dp0%\node_modules\opencode-ai\bin\opencode.exe" %*`).
-    /// </summary>
     static string? ResolveShimTarget(string cmdPath)
     {
         try
         {
-            var dir = Path.GetDirectoryName(cmdPath);
-            if (dir is null)
+            if (new FileInfo(cmdPath).Length > 16 * 1024)
                 return null;
-            foreach (var line in File.ReadLines(cmdPath))
+            var dir = Path.GetDirectoryName(Path.GetFullPath(cmdPath))!;
+            string? target = null;
+            var dp0Defined = false;
+            foreach (var raw in File.ReadLines(cmdPath))
             {
-                var quoteStart = line.IndexOf('"');
-                while (quoteStart >= 0)
+                var line = raw.Trim();
+                if (line.StartsWith('@'))
+                    line = line[1..];
+                if (line.Length == 0 || line.Equals("echo off", StringComparison.OrdinalIgnoreCase)
+                    || line.Equals("setlocal", StringComparison.OrdinalIgnoreCase)
+                    || line.Equals("endlocal", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (target is null && (line.Equals("set \"dp0=%~dp0\"", StringComparison.OrdinalIgnoreCase)
+                    || line.Equals("set dp0=%~dp0", StringComparison.OrdinalIgnoreCase)))
                 {
-                    var quoteEnd = line.IndexOf('"', quoteStart + 1);
-                    if (quoteEnd <= quoteStart)
-                        break;
-                    var candidate = line[(quoteStart + 1)..quoteEnd];
-                    candidate = candidate.Replace("%~dp0", dir + Path.DirectorySeparatorChar)
-                        .Replace("%dp0%", dir + Path.DirectorySeparatorChar)
-                        .Replace("%DP0%", dir + Path.DirectorySeparatorChar);
-                    candidate = Environment.ExpandEnvironmentVariables(candidate).Trim();
-                    if (candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                        && File.Exists(candidate))
-                        return candidate;
-                    quoteStart = line.IndexOf('"', quoteEnd + 1);
+                    dp0Defined = true;
+                    continue;
                 }
+                if (target is not null || !line.StartsWith('"'))
+                    return null;
+                var end = line.IndexOf('"', 1);
+                if (end < 0 || line[(end + 1)..].Trim() != "%*")
+                    return null;
+                var candidate = line[1..end];
+                var prefix = candidate.StartsWith("%~dp0", StringComparison.OrdinalIgnoreCase) ? "%~dp0"
+                    : dp0Defined && candidate.StartsWith("%dp0%", StringComparison.OrdinalIgnoreCase) ? "%dp0%" : null;
+                if (prefix is null)
+                    return null;
+                var relative = candidate[prefix.Length..].TrimStart('\\', '/');
+                if (relative.IndexOfAny(['%', '!', '^', ':', '"']) >= 0 || Path.IsPathRooted(relative))
+                    return null;
+                target = Path.GetFullPath(Path.Combine(dir, relative));
+                if (!target.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    || !Path.GetExtension(target).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                    || !File.Exists(target))
+                    return null;
             }
-
-            var siblingExe = Path.Combine(dir, Path.GetFileNameWithoutExtension(cmdPath) + ".exe");
-            if (File.Exists(siblingExe))
-                return siblingExe;
+            return target;
         }
         catch (Exception) { }
         return null;
     }
 
-    /// <summary>
-    /// Builds a spawn that works for real exes and for .cmd/sh shims alike.
-    /// Shims go via cmd.exe /c (T3 shell:true parity); real exes run direct.
-    /// </summary>
-    static ProcessStartInfo BuildSpawn(string binaryPath, string arguments, string? workingDirectory)
+    static ProcessStartInfo BuildSpawn(string binaryPath, IReadOnlyList<string> arguments, string? workingDirectory)
     {
-        var resolved = binaryPath;
-        if (!Path.IsPathRooted(resolved) || !File.Exists(resolved))
-            resolved = FindOnPath(Path.GetFileNameWithoutExtension(resolved)) ?? resolved;
-
-        if (resolved.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(resolved))
+        var resolved = ResolveExecutable(binaryPath)
+            ?? throw new OpenCodeException("startOpenCodeServerProcess",
+                $"Couldn't resolve an executable OpenCode CLI at '{binaryPath}'. "
+                + "Set the full path to opencode.exe (or a resolvable opencode.cmd shim) in Settings, or install it on PATH.");
+        var startInfo = new ProcessStartInfo
         {
-            return new ProcessStartInfo(resolved, arguments)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = workingDirectory ?? "",
-            };
-        }
-
-        if (File.Exists(resolved) && !IsPortableExecutable(resolved))
-        {
-            return new ProcessStartInfo("cmd.exe", $"/c \"\"{resolved}\" {arguments}\"")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = workingDirectory ?? "",
-            };
-        }
-
-        // Bare command: let cmd.exe resolve via PATHEXT (.cmd/.bat/.ps1 shims).
-        if (!resolved.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !File.Exists(resolved))
-        {
-            return new ProcessStartInfo("cmd.exe", $"/c \"\"{binaryPath.Trim()}\" {arguments}\"")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = workingDirectory ?? "",
-            };
-        }
-
-        return new ProcessStartInfo(resolved, arguments)
-        {
+            FileName = resolved,
+            UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = workingDirectory ?? "",
         };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        return startInfo;
     }
 
-    static bool IsPortableExecutable(string path)
+    static string? ResolveExecutable(string binaryPath)
     {
-        try
+        if (Path.IsPathRooted(binaryPath) || binaryPath != Path.GetFileName(binaryPath))
         {
-            using var stream = File.OpenRead(path);
-            Span<byte> header = stackalloc byte[2];
-            return stream.Read(header) == 2 && header[0] == 'M' && header[1] == 'Z';
+            if (File.Exists(binaryPath))
+                return NormalizeExecutable(binaryPath);
+            return null;
         }
-        catch (Exception)
-        {
-            return false;
-        }
+
+        var fileName = Path.GetFileName(binaryPath.Trim());
+        if (File.Exists(binaryPath))
+            return NormalizeExecutable(binaryPath);
+        return FindOnPath(fileName);
+    }
+
+    static string? NormalizeExecutable(string path)
+    {
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            return Path.GetFullPath(path);
+        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase))
+            return ResolveShimTarget(path);
+        return null;
     }
 
     public static async Task<string?> ProbeCliVersionAsync(string binaryPath, CancellationToken token = default)
@@ -211,15 +196,16 @@ internal static class OpenCodeServerManager
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
             cts.CancelAfter(OpenCodeConstants.VersionProbeTimeout);
-            var psi = BuildSpawn(ResolveBinaryPath(binaryPath), "--version", null);
+            var psi = BuildSpawn(ResolveBinaryPath(binaryPath), ["--version"], null);
             using var proc = Process.Start(psi);
             if (proc is null)
                 return null;
             try
             {
-                var stdout = await proc.StandardOutput.ReadToEndAsync(cts.Token);
-                try { await proc.WaitForExitAsync(cts.Token); } catch (OperationCanceledException) { }
-                return OpenCodeInventory.ParseGenericCliVersion(stdout);
+                var stdout = proc.StandardOutput.ReadToEndAsync(cts.Token);
+                var stderr = proc.StandardError.ReadToEndAsync(cts.Token);
+                await Task.WhenAll(stdout, stderr, proc.WaitForExitAsync(cts.Token)).ConfigureAwait(false);
+                return proc.ExitCode == 0 ? OpenCodeInventory.ParseGenericCliVersion(await stdout.ConfigureAwait(false)) : null;
             }
             finally
             {
@@ -245,6 +231,7 @@ internal static class OpenCodeServerManager
         IReadOnlyDictionary<string, string?>? instanceEnv = null,
         CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         binaryPath = ResolveBinaryPath(binaryPath);
         var port = FindAvailablePort();
         var password = OpenCodeInventory.ResolveServerPassword(
@@ -253,7 +240,7 @@ internal static class OpenCodeServerManager
         var configContent = OpenCodeInventory.ResolveConfigContent(instanceEnv, EnvSnapshot());
 
         var psi = BuildSpawn(binaryPath,
-            $"serve --hostname={OpenCodeConstants.DefaultHostname} --port={port}",
+            ["serve", $"--hostname={OpenCodeConstants.DefaultHostname}", $"--port={port}"],
             Directory.Exists(directory) ? directory : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         if (instanceEnv is not null)
         {
@@ -280,78 +267,93 @@ internal static class OpenCodeServerManager
             throw new OpenCodeException("startOpenCodeServerProcess",
                 "OpenCode CLI (opencode) is not installed or not on PATH. Install it, then run `opencode auth login`.");
 
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-        var urlFound = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        proc.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data is null)
-                return;
-            lock (stdout)
-            {
-                stdout.AppendLine(e.Data);
-                if (stdout.Length > OpenCodeConstants.ServerStartupMaxOutputChars)
-                    stdout.Remove(0, stdout.Length - OpenCodeConstants.ServerStartupMaxOutputChars);
-                var url = OpenCodeInventory.ParseServerUrlFromOutput(stdout.ToString());
-                if (url is not null)
-                    urlFound.TrySetResult(url);
-            }
-        };
-        proc.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is null)
-                return;
-            lock (stderr)
-            {
-                stderr.AppendLine(e.Data);
-                if (stderr.Length > OpenCodeConstants.ServerStartupMaxOutputChars)
-                    stderr.Remove(0, stderr.Length - OpenCodeConstants.ServerStartupMaxOutputChars);
-            }
-        };
-        proc.EnableRaisingEvents = true;
-        proc.Exited += (_, _) => exited.TrySetResult(proc.HasExited ? proc.ExitCode : -1);
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(OpenCodeConstants.ServerStartTimeout);
-        await using var _ = timeout.Token.Register(() =>
-        {
-            urlFound.TrySetCanceled();
-            exited.TrySetCanceled();
-        });
-
-        var completed = await Task.WhenAny(urlFound.Task, exited.Task);
-        if (completed == exited.Task)
-        {
-            var code = await exited.Task;
-            string so, se;
-            lock (stdout) so = stdout.ToString().Trim();
-            lock (stderr) se = stderr.ToString().Trim();
-            Kill(proc);
-            var detail = $"OpenCode server exited before startup completed (code: {code})."
-                + (so.Length > 0 ? $"\n\nstdout:\n{so}" : "")
-                + (se.Length > 0 ? $"\n\nstderr:\n{se}" : "");
-            throw new OpenCodeException("startOpenCodeServerProcess", detail);
-        }
-
-        string url;
+        var transferred = false;
         try
         {
-            url = await urlFound.Task;
-        }
-        catch (OperationCanceledException)
-        {
-            Kill(proc);
-            throw new OpenCodeException("startOpenCodeServerProcess",
-                $"Timed out waiting for OpenCode server start after {(int)OpenCodeConstants.ServerStartTimeout.TotalMilliseconds}ms.");
-        }
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(OpenCodeConstants.ServerStartTimeout);
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+            var urlFound = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var outputEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var errorEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            proc.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is null)
+                {
+                    outputEnded.TrySetResult();
+                    return;
+                }
+                lock (stdout)
+                {
+                    stdout.AppendLine(e.Data);
+                    if (stdout.Length > OpenCodeConstants.ServerStartupMaxOutputChars)
+                        stdout.Remove(0, stdout.Length - OpenCodeConstants.ServerStartupMaxOutputChars);
+                    var url = OpenCodeInventory.ParseServerUrlFromOutput(stdout.ToString());
+                    if (url is not null)
+                        urlFound.TrySetResult(url);
+                }
+            };
+            proc.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is null)
+                {
+                    errorEnded.TrySetResult();
+                    return;
+                }
+                lock (stderr)
+                {
+                    stderr.AppendLine(e.Data);
+                    if (stderr.Length > OpenCodeConstants.ServerStartupMaxOutputChars)
+                        stderr.Remove(0, stderr.Length - OpenCodeConstants.ServerStartupMaxOutputChars);
+                }
+            };
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
 
-        // Keep draining (BeginOutputReadLine stays attached until Kill/Dispose).
-        var version = await VerifyHealthAsync(url, password, token);
-        return new OpenCodeServerHandle(url, password, version, proc, External: false);
+            using var exitWatch = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+            var exited = proc.WaitForExitAsync(exitWatch.Token);
+            try
+            {
+                var completed = await Task.WhenAny(urlFound.Task, exited).WaitAsync(timeout.Token).ConfigureAwait(false);
+                if (completed == exited)
+                {
+                    await exited.ConfigureAwait(false);
+                    await Task.WhenAll(outputEnded.Task, errorEnded.Task).WaitAsync(timeout.Token).ConfigureAwait(false);
+                    string so, se;
+                    lock (stdout) so = stdout.ToString().Trim();
+                    lock (stderr) se = stderr.ToString().Trim();
+                    throw new OpenCodeException("startOpenCodeServerProcess",
+                        $"OpenCode server exited before startup completed (code: {proc.ExitCode})."
+                        + (so.Length > 0 ? $"\n\nstdout:\n{so}" : "")
+                        + (se.Length > 0 ? $"\n\nstderr:\n{se}" : ""));
+                }
+
+                var url = await urlFound.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+                var version = await VerifyHealthAsync(url, password, timeout.Token).ConfigureAwait(false);
+                timeout.Token.ThrowIfCancellationRequested();
+                if (proc.HasExited)
+                    throw new OpenCodeException("startOpenCodeServerProcess", "OpenCode server exited during its health check.");
+                transferred = true;
+                return new OpenCodeServerHandle(url, password, version, proc, External: false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && timeout.IsCancellationRequested)
+            {
+                throw new OpenCodeException("startOpenCodeServerProcess",
+                    $"Timed out waiting for OpenCode server start after {(int)OpenCodeConstants.ServerStartTimeout.TotalMilliseconds}ms.");
+            }
+            finally
+            {
+                exitWatch.Cancel();
+                try { await exited.ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+            }
+        }
+        finally
+        {
+            if (!transferred)
+                Kill(proc);
+        }
     }
 
     public static async Task<OpenCodeServerHandle> ConnectExternalAsync(
@@ -392,6 +394,10 @@ internal static class OpenCodeServerManager
             return version;
         }
         catch (OpenCodeException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             throw;
         }

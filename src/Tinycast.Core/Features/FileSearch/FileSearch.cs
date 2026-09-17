@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Tinycast.Features.FileSearch;
@@ -128,8 +129,84 @@ public sealed class FileSearchIgnoreList
 
     static bool Glob(string pattern, string candidate)
     {
-        var rx = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+        var rx = "^" + GlobToRegex(pattern) + "$";
         return Regex.IsMatch(candidate, rx, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    static string GlobToRegex(string pattern)
+    {
+        var rx = new StringBuilder(pattern.Length * 2);
+        var i = 0;
+        while (i < pattern.Length)
+        {
+            var c = pattern[i];
+            if (c == '*')
+            {
+                rx.Append(".*");
+                i++;
+                continue;
+            }
+
+            if (c == '?')
+            {
+                rx.Append('.');
+                i++;
+                continue;
+            }
+
+            if (c == '[')
+            {
+                var close = CharClassClose(pattern, i);
+                if (close < 0)
+                {
+                    rx.Append("\\[");
+                    i++;
+                    continue;
+                }
+
+                rx.Append('[');
+                var n = i + 1;
+                if (n < close && pattern[n] is '!' or '^')
+                {
+                    rx.Append('^');
+                    n++;
+                }
+
+                while (n < close)
+                {
+                    if (pattern[n] == '\\')
+                        rx.Append("\\\\");
+                    else
+                        rx.Append(pattern[n]);
+                    n++;
+                }
+
+                rx.Append(']');
+                i = close + 1;
+                continue;
+            }
+
+            rx.Append(Regex.Escape(c.ToString()));
+            i++;
+        }
+
+        return rx.ToString();
+    }
+
+    static int CharClassClose(string pattern, int open)
+    {
+        var i = open + 1;
+        if (i < pattern.Length && pattern[i] is '!' or '^')
+            i++;
+        if (i < pattern.Length && pattern[i] == ']')
+            i++;
+        for (; i < pattern.Length; i++)
+        {
+            if (pattern[i] == ']')
+                return i;
+        }
+
+        return -1;
     }
 }
 

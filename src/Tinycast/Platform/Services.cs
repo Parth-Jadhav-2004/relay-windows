@@ -20,8 +20,11 @@ public sealed class ClipboardManager
 {
     readonly AppCore _core;
     bool _ignoreNext;
+    int _ocrGeneration;
 
     public ClipboardManager(AppCore core) => _core = core;
+
+    public void CancelPendingOcr() => Interlocked.Increment(ref _ocrGeneration);
 
     public void Start(IntPtr hwnd)
     {
@@ -155,9 +158,11 @@ public sealed class ClipboardManager
     public async Task CopyFileAsync(string path)
     {
         IgnoreNext();
-        var file = await StorageFile.GetFileFromPathAsync(path);
+        IStorageItem item = Directory.Exists(path)
+            ? await StorageFolder.GetFolderFromPathAsync(path)
+            : await StorageFile.GetFileFromPathAsync(path);
         var package = new DataPackage();
-        package.SetStorageItems([file]);
+        package.SetStorageItems([item]);
         package.SetText(path);
         package.SetData("TinycastIgnore", "1");
         WinClipboard.SetContent(package);
@@ -201,6 +206,7 @@ public sealed class ClipboardManager
 
     async Task RecognizeAsync(long id, string path)
     {
+        var generation = Volatile.Read(ref _ocrGeneration);
         try
         {
             var engine = OcrEngine.TryCreateFromUserProfileLanguages();
@@ -211,6 +217,8 @@ public sealed class ClipboardManager
             var decoder = await BitmapDecoder.CreateAsync(stream);
             var bitmap = await decoder.GetSoftwareBitmapAsync();
             var result = await engine.RecognizeAsync(bitmap);
+            if (Volatile.Read(ref _ocrGeneration) != generation)
+                return;
             if (!string.IsNullOrWhiteSpace(result.Text))
                 _core.ClipboardStore.SetOcr(id, result.Text);
         }

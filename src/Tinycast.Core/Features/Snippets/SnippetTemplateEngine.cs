@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Tinycast.Features.Snippets;
 
@@ -37,10 +36,12 @@ public static class SnippetTemplateEngine
     {
         var declared = new List<MissingArgument>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match match in Regex.Matches(text, @"\{argument(?:\s+([^}=]+))?(?:=([^}]*))?\}"))
+        foreach (var token in Tokens(text))
         {
-            var name = (match.Groups[1].Success ? match.Groups[1].Value : "argument").Trim();
-            if (match.Value.Contains("default=", StringComparison.OrdinalIgnoreCase))
+            if (!token.StartsWith("argument", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var (name, defaultValue) = ParseArgument(token);
+            if (defaultValue is not null)
                 continue;
             if (seen.Add(name))
                 declared.Add(new MissingArgument(name, []));
@@ -69,6 +70,13 @@ public static class SnippetTemplateEngine
         var i = 0;
         while (i < text.Length)
         {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is '{' or '}')
+            {
+                output.Append(text[i + 1]);
+                i += 2;
+                continue;
+            }
+
             if (text[i] != '{')
             {
                 output.Append(text[i]);
@@ -76,20 +84,88 @@ public static class SnippetTemplateEngine
                 continue;
             }
 
-            var end = text.IndexOf('}', i);
-            if (end < 0)
+            if (!TryReadBraceToken(text, i, out var end, out var token))
             {
                 output.Append(text[i..]);
                 break;
             }
 
-            var token = text[(i + 1)..end].Trim();
             i = end + 1;
             var replaced = ReplaceToken(token, context, args, snippets, depth, visited, missing, missingNames, output.Length, ref cursor);
             output.Append(replaced);
         }
 
         return output.ToString();
+    }
+
+    static IEnumerable<string> Tokens(string text)
+    {
+        var i = 0;
+        while (i < text.Length)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is '{' or '}')
+            {
+                i += 2;
+                continue;
+            }
+
+            if (text[i] != '{')
+            {
+                i++;
+                continue;
+            }
+
+            if (!TryReadBraceToken(text, i, out var end, out var token))
+                yield break;
+            yield return token;
+            i = end + 1;
+        }
+    }
+
+    static bool TryReadBraceToken(string text, int start, out int end, out string token)
+    {
+        var body = new StringBuilder();
+        var depth = 0;
+        var i = start + 1;
+        while (i < text.Length)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is '{' or '}')
+            {
+                body.Append(text[i + 1]);
+                i += 2;
+                continue;
+            }
+
+            if (text[i] == '{')
+            {
+                depth++;
+                body.Append('{');
+                i++;
+                continue;
+            }
+
+            if (text[i] == '}')
+            {
+                if (depth == 0)
+                {
+                    end = i;
+                    token = body.ToString().Trim();
+                    return true;
+                }
+
+                depth--;
+                body.Append('}');
+                i++;
+                continue;
+            }
+
+            body.Append(text[i]);
+            i++;
+        }
+
+        end = -1;
+        token = "";
+        return false;
     }
 
     static string ReplaceToken(
@@ -147,25 +223,14 @@ public static class SnippetTemplateEngine
             var snippet = snippets.FirstOrDefault(s => s.Id == id || s.Name.Equals(id, StringComparison.OrdinalIgnoreCase));
             if (snippet is null || !visited.Add(snippet.Id))
                 return "{" + token + "}";
-            return ExpandText(snippet.Text, context, args, snippets, depth + 1, visited, missing, missingNames, ref cursor);
+            var expanded = ExpandText(snippet.Text, context, args, snippets, depth + 1, visited, missing, missingNames, ref cursor);
+            visited.Remove(snippet.Id);
+            return expanded;
         }
 
         if (lower.StartsWith("argument", StringComparison.Ordinal))
         {
-            var name = "argument";
-            string? defaultValue = null;
-            var parts = token.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length > 1)
-            {
-                var rest = parts[1];
-                var def = Regex.Match(rest, @"default=([^\s}]+)");
-                if (def.Success)
-                    defaultValue = def.Groups[1].Value;
-                var namePart = Regex.Replace(rest, @"default=[^\s}]+", "").Trim();
-                if (namePart.Length > 0)
-                    name = namePart;
-            }
-
+            var (name, defaultValue) = ParseArgument(token);
             if (args.TryGetValue(name, out var supplied))
                 return supplied;
             if (defaultValue is not null)
@@ -177,6 +242,33 @@ public static class SnippetTemplateEngine
 
         return "{" + token + "}";
     }
+
+    static (string Name, string? DefaultValue) ParseArgument(string token)
+    {
+        var name = "argument";
+        string? defaultValue = null;
+        if (!token.StartsWith("argument", StringComparison.OrdinalIgnoreCase))
+            return (name, defaultValue);
+        var rest = token[8..].TrimStart();
+        if (rest.Length == 0)
+            return (name, defaultValue);
+
+        var defAt = rest.IndexOf("default=", StringComparison.OrdinalIgnoreCase);
+        if (defAt >= 0)
+        {
+            defaultValue = Unquote(rest[(defAt + "default=".Length)..].Trim());
+            rest = rest[..defAt].Trim();
+        }
+
+        if (rest.StartsWith("name=", StringComparison.OrdinalIgnoreCase))
+            rest = rest["name=".Length..].Trim();
+        if (rest.Length > 0)
+            name = Unquote(rest);
+        return (name, defaultValue);
+    }
+
+    static string Unquote(string value) =>
+        value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1] : value;
 
     static string ApplyModifier(string value, string token)
     {

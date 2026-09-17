@@ -76,6 +76,23 @@ public static class FuzzyMatcher
         var index = c.IndexOf(q, StringComparison.Ordinal);
         if (index >= 0)
         {
+            if (!IsWordStart(c, index))
+            {
+                var start = index + 1;
+                while (start <= c.Length - q.Length)
+                {
+                    var next = c.IndexOf(q, start, StringComparison.Ordinal);
+                    if (next < 0)
+                        break;
+                    if (IsWordStart(c, next))
+                    {
+                        index = next;
+                        break;
+                    }
+                    start = next + 1;
+                }
+            }
+
             var tier = IsWordStart(c, index) ? FuzzyTier.WordStart : FuzzyTier.Substring;
             return new FuzzyMatch(tier, index, query.Characters.Length, length, 0);
         }

@@ -42,8 +42,10 @@ public static class CalcTokenizer
                 continue;
             }
 
-            if (TryNumber(query, ref i, tokens))
+            if (TryNumber(query, ref i, tokens, out var invalidNumber))
                 continue;
+            if (invalidNumber)
+                return null;
             if (TryOperator(query, ref i, tokens))
                 continue;
             if (c == '(')
@@ -72,8 +74,26 @@ public static class CalcTokenizer
             return null;
         }
 
+        if (HasTopLevelComma(tokens))
+            return null;
         FoldLoneX(tokens);
         return tokens.Count == 0 ? null : tokens;
+    }
+
+    static bool HasTopLevelComma(List<CalcToken> tokens)
+    {
+        var depth = 0;
+        foreach (var token in tokens)
+        {
+            if (token.Kind == CalcTokenKind.LParen)
+                depth++;
+            else if (token.Kind == CalcTokenKind.RParen)
+                depth--;
+            else if (token.Kind == CalcTokenKind.Comma && depth <= 0)
+                return true;
+        }
+
+        return false;
     }
 
     static void FoldLoneX(List<CalcToken> tokens)
@@ -94,8 +114,9 @@ public static class CalcTokenizer
         token.IsNumber || token.Kind is CalcTokenKind.LParen || token.Kind == CalcTokenKind.Ident
         || (token.Kind == CalcTokenKind.Operator && token.Text is "+" or "-");
 
-    static bool TryNumber(string query, ref int i, List<CalcToken> tokens)
+    static bool TryNumber(string query, ref int i, List<CalcToken> tokens, out bool invalid)
     {
+        invalid = false;
         if (query[i] is '0' && i + 1 < query.Length && query[i + 1] is 'x' or 'X' or 'b' or 'B' or 'o' or 'O')
         {
             var prefix = char.ToLowerInvariant(query[i + 1]);
@@ -113,8 +134,14 @@ public static class CalcTokenizer
                 i = j;
                 return true;
             }
-            catch (Exception)
+            catch (OverflowException)
             {
+                invalid = true;
+                return false;
+            }
+            catch (FormatException)
+            {
+                invalid = true;
                 return false;
             }
         }
@@ -195,7 +222,7 @@ public static class CalcTokenizer
             kind = CalcTokenKind.Compact;
         }
 
-        if (kind == CalcTokenKind.Number && !double.IsFinite(value))
+        if (!double.IsFinite(value))
             return false;
         tokens.Add(new CalcToken(kind, query[i..k], value));
         i = k;
@@ -235,6 +262,13 @@ public static class CalcTokenizer
     {
         if (!IsIdentStart(query[i]))
             return false;
+        if (tokens.Count > 0 && tokens[^1].IsNumber && query[i] is 'x' or 'X')
+        {
+            tokens.Add(new CalcToken(CalcTokenKind.Ident, query[i].ToString()));
+            i++;
+            return true;
+        }
+
         var start = i;
         i++;
         while (i < query.Length && IsIdentPart(query[i]))

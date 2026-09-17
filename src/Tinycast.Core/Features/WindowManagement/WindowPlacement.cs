@@ -156,7 +156,7 @@ public static class WindowPlacementEngine
             return null;
         var gap = SanitizedGap(input.Gap, host.Value.VisibleFrame);
         if (input.Command is "next-display" or "previous-display")
-            return DisplayPlacement(input, host.Value, gap);
+            return DisplayPlacement(input, host.Value);
 
         var step = Wrapped(input.Step, CycleLength(input.Command, input.Screens, input.Cycle));
         if (HalfOf(input.Command) is { } half)
@@ -321,22 +321,23 @@ public static class WindowPlacementEngine
     static Placement HalfPlacement(PlacementInput input, Half half, ScreenSpec host, int step)
     {
         if (input.Cycle != WindowCycle.Displays)
-            return TilePlacement(HalfFractions(half, SizeCycle[step]), host, input.Gap);
+            return TilePlacement(HalfFractions(half, SizeCycle[step]), host, SanitizedGap(input.Gap, host.VisibleFrame));
         var strip = Ordered(input.Screens);
         if (strip.Count <= 1)
-            return TilePlacement(HalfFractions(half, 0.5), host, input.Gap);
+            return TilePlacement(HalfFractions(half, 0.5), host, SanitizedGap(input.Gap, host.VisibleFrame));
         var originIndex = strip.ToList().FindIndex(s => s.Id == (input.OriginScreenId ?? host.Id));
         if (originIndex < 0)
             originIndex = strip.ToList().FindIndex(s => s.Id == host.Id);
         if (originIndex < 0)
-            return TilePlacement(HalfFractions(half, 0.5), host, input.Gap);
+            return TilePlacement(HalfFractions(half, 0.5), host, SanitizedGap(input.Gap, host.VisibleFrame));
         var leads = half.Leading;
         var slot = Wrapped(originIndex * 2 + (leads ? 0 : 1) + (leads ? -step : step), strip.Count * 2);
         var edgeLeading = slot % 2 == 0;
-        return TilePlacement(HalfFractions(new Half(half.Horizontal, edgeLeading), 0.5), strip[slot / 2], input.Gap);
+        var destination = strip[slot / 2];
+        return TilePlacement(HalfFractions(new Half(half.Horizontal, edgeLeading), 0.5), destination, SanitizedGap(input.Gap, destination.VisibleFrame));
     }
 
-    static Placement? DisplayPlacement(PlacementInput input, ScreenSpec host, double gap)
+    static Placement? DisplayPlacement(PlacementInput input, ScreenSpec host)
     {
         var ordered = Ordered(input.Screens);
         if (ordered.Count <= 1)
@@ -346,9 +347,10 @@ public static class WindowPlacementEngine
             return null;
         var offset = input.Command == "next-display" ? 1 : -1;
         var destination = ordered[(index + offset + ordered.Count) % ordered.Count];
+        var destGap = SanitizedGap(input.Gap, destination.VisibleFrame);
         RectD frame;
         if (input.LastTileCommand is string last && TileFractions(last) is { } fractions)
-            frame = Tile(destination.VisibleFrame, fractions.X0, fractions.X1, fractions.Y0, fractions.Y1, SanitizedGap(gap, destination.VisibleFrame));
+            frame = Tile(destination.VisibleFrame, fractions.X0, fractions.X1, fractions.Y0, fractions.Y1, destGap);
         else
         {
             var source = host.VisibleFrame;

@@ -36,8 +36,8 @@ See `.env.example`. The token is never shown in Settings and is never backed up.
 Publish a build:
 
 ```powershell
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 The Release workflow publishes a self-contained zip. Dev (`DEBUG`) builds do not install those zips.

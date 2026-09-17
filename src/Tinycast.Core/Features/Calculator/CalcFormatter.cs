@@ -126,10 +126,23 @@ public static class CalcFormatter
         var sign = feet < 0 ? "-" : "";
         var magnitude = Math.Abs(feet);
         var wholeFeet = Math.Truncate(magnitude);
-        var inches = (magnitude - wholeFeet) * 12;
+        var inches = Math.Round((magnitude - wholeFeet) * 12);
+        if (inches >= 12)
+        {
+            wholeFeet += Math.Truncate(inches / 12);
+            inches %= 12;
+        }
+        else if (inches <= -12)
+        {
+            wholeFeet += Math.Truncate(inches / 12);
+            inches %= 12;
+        }
+
         var feetPart = wholeFeet == 0
             ? ""
             : sign + Display(wholeFeet) + (wholeFeet == 1 ? " foot" : " feet");
+        if (inches == 0)
+            return feetPart.Length == 0 ? sign + "0 inches" : feetPart;
         var inchText = Display(inches);
         var inchPart = inchText + (inchText == "1" ? " inch" : " inches");
         if (feetPart.Length == 0)

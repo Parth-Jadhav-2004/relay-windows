@@ -80,17 +80,45 @@ public static class CalcTimeZone
         var leading = parts[..connector];
         if (!SourceMoment(leading, context, out var source, out var sourceZone))
             return null;
-        if (ahead is { } a)
-            source += a;
-        if (offset is { } o)
-            source += o;
 
-        var dest = TimeZoneInfo.ConvertTime(DateTime.SpecifyKind(source, DateTimeKind.Unspecified), sourceZone, target);
-        var note = DayNote(source.Date, dest.Date);
+        DateTimeOffset sourceDto;
+        try
+        {
+            var wall = DateTime.SpecifyKind(source, DateTimeKind.Unspecified);
+            if (sourceZone.IsInvalidTime(wall))
+                return null;
+            sourceDto = new DateTimeOffset(wall, sourceZone.GetUtcOffset(wall));
+            if (ahead is { } a)
+                sourceDto = sourceDto.Add(a);
+            if (offset is { } o)
+                sourceDto = sourceDto.Add(o);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+
+        DateTime dest;
+        DateTime adjustedSource;
+        try
+        {
+            dest = TimeZoneInfo.ConvertTime(sourceDto, target).DateTime;
+            adjustedSource = TimeZoneInfo.ConvertTime(sourceDto, sourceZone).DateTime;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+
+        var note = DayNote(adjustedSource.Date, dest.Date);
         var time = dest.ToString("h:mm tt", CultureInfo.InvariantCulture).ToLowerInvariant();
         var display = time + note;
         return new CalcResult(
-            source.ToString("h:mm tt", CultureInfo.InvariantCulture).ToLowerInvariant(),
+            adjustedSource.ToString("h:mm tt", CultureInfo.InvariantCulture).ToLowerInvariant(),
             display, time, Label(sourceZone), Label(target), false);
     }
 
@@ -151,6 +179,8 @@ public static class CalcTimeZone
         var minute = ampm.Groups[2].Success ? int.Parse(ampm.Groups[2].Value) : 0;
         if (ampm.Groups[3].Value is "pm" && hour < 12) hour += 12;
         if (ampm.Groups[3].Value is "am" && hour == 12) hour = 0;
+        if (hour is < 0 or > 23 || minute is < 0 or > 59)
+            return false;
         source = context.Now.Date.AddHours(hour).AddMinutes(minute);
         return true;
     }
@@ -160,17 +190,29 @@ public static class CalcTimeZone
         var match = Regex.Match(text.Trim(), @"^(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|min|m|seconds?|secs?|s)?$");
         if (!match.Success)
             return null;
-        var n = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        if (!double.TryParse(match.Groups[1].Value, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n))
+            return null;
         var unit = match.Groups[2].Value;
-        if (unit.Length == 0)
-            return implyHours ? TimeSpan.FromHours(n) : null;
-        return unit[0] switch
+        try
         {
-            'h' => TimeSpan.FromHours(n),
-            'm' => TimeSpan.FromMinutes(n),
-            's' => TimeSpan.FromSeconds(n),
-            _ => TimeSpan.FromHours(n),
-        };
+            if (unit.Length == 0)
+                return implyHours ? TimeSpan.FromHours(n) : null;
+            return unit[0] switch
+            {
+                'h' => TimeSpan.FromHours(n),
+                'm' => TimeSpan.FromMinutes(n),
+                's' => TimeSpan.FromSeconds(n),
+                _ => TimeSpan.FromHours(n),
+            };
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     static bool LooksLikeDuration(string word) =>

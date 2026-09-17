@@ -35,8 +35,10 @@ public static class CalcPercent
         var ratio = Regex.Match(query, @"^ratio\s+of\s+(-?\d+)\s+to\s+(-?\d+)$", RegexOptions.IgnoreCase);
         if (ratio.Success)
         {
-            var a = (long)Num(ratio, 1);
-            var b = (long)Num(ratio, 2);
+            if (!long.TryParse(ratio.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var a)
+                || !long.TryParse(ratio.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b)
+                || a == long.MinValue || b == long.MinValue)
+                return new CalcResult(query, "Cannot evaluate", "", "Ratio", "Result", true);
             if (a == 0 && b == 0)
                 return null;
             var g = Gcd(Math.Abs(a), Math.Abs(b));
@@ -49,10 +51,16 @@ public static class CalcPercent
         var list = Regex.Match(query, @"^(average|avg|mean|sum|min|max)\s+of\s+(.+)$", RegexOptions.IgnoreCase);
         if (list.Success)
         {
-            var nums = Regex.Split(list.Groups[2].Value, @"\s*(?:,|and)\s*")
-                .Select(s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : double.NaN)
-                .Where(double.IsFinite)
-                .ToList();
+            var segments = Regex.Split(list.Groups[2].Value, @"\s*(?:,|and)\s*");
+            var nums = new List<double>(segments.Length);
+            foreach (var segment in segments)
+            {
+                if (!double.TryParse(segment, NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+                    || !double.IsFinite(n))
+                    return new CalcResult(query, "Cannot evaluate", "", TitleOf(list.Groups[1].Value), "Result", true);
+                nums.Add(n);
+            }
+
             if (nums.Count == 0)
                 return null;
             var name = list.Groups[1].Value.ToLowerInvariant();
@@ -63,8 +71,7 @@ public static class CalcPercent
                 "max" => nums.Max(),
                 _ => nums.Average(),
             };
-            var badge = name switch { "sum" => "Sum", "min" => "Minimum", "max" => "Maximum", _ => "Average" };
-            return Number(query, value, badge);
+            return Number(query, value, TitleOf(name));
         }
 
         var round = Regex.Match(query, @"^round\s+([+-]?\d+(?:\.\d+)?)\s+to\s+nearest\s+([+-]?\d+(?:\.\d+)?)$", RegexOptions.IgnoreCase);
@@ -88,6 +95,14 @@ public static class CalcPercent
             (a, b) = (b, a % b);
         return a;
     }
+
+    static string TitleOf(string name) => name.ToLowerInvariant() switch
+    {
+        "sum" => "Sum",
+        "min" => "Minimum",
+        "max" => "Maximum",
+        _ => "Average",
+    };
 
     static CalcResult Number(string query, double value, string badge)
     {

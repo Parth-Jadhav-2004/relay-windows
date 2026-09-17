@@ -119,7 +119,7 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
 
     [DllImport("user32.dll")]
@@ -136,7 +136,7 @@ internal static partial class NativeMethods
 
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref Rect lprcMonitor, IntPtr dwData);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW", SetLastError = true)]
     public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
 
     [DllImport("powrprof.dll", SetLastError = true)]
@@ -205,10 +205,23 @@ internal static partial class NativeMethods
         if (string.IsNullOrEmpty(text))
             return;
         var inputs = new List<Input>(text.Length * 2);
-        foreach (var ch in text)
+        for (var i = 0; i < text.Length; i++)
         {
-            inputs.Add(Key((ushort)ch, KeyeventfUnicode));
-            inputs.Add(Key((ushort)ch, KeyeventfUnicode | KeyeventfKeyUp));
+            if (i + 1 < text.Length && char.IsSurrogatePair(text, i))
+            {
+                var high = (ushort)text[i];
+                var low = (ushort)text[i + 1];
+                inputs.Add(Key(high, KeyeventfUnicode));
+                inputs.Add(Key(low, KeyeventfUnicode));
+                inputs.Add(Key(high, KeyeventfUnicode | KeyeventfKeyUp));
+                inputs.Add(Key(low, KeyeventfUnicode | KeyeventfKeyUp));
+                i++;
+                continue;
+            }
+
+            var ch = (ushort)text[i];
+            inputs.Add(Key(ch, KeyeventfUnicode));
+            inputs.Add(Key(ch, KeyeventfUnicode | KeyeventfKeyUp));
         }
 
         var payload = inputs.ToArray();

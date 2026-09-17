@@ -21,7 +21,7 @@ public static class MsSettingsCatalog
         ("Themes", "ms-settings:themes", "\uE771"),
         ("Taskbar", "ms-settings:taskbar", "\uE7C4"),
         ("Apps", "ms-settings:appsfeatures", "\uE71D"),
-        ("Installed apps", "ms-settings:appsfeatures", "\uE71D"),
+        ("Installed apps", "ms-settings:installedapps", "\uE71D"),
         ("Default apps", "ms-settings:defaultapps", "\uE774"),
         ("Startup apps", "ms-settings:startupapps", "\uE7E8"),
         ("Accounts", "ms-settings:yourinfo", "\uE77B"),

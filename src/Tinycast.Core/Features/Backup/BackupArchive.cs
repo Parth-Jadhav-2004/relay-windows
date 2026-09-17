@@ -36,9 +36,33 @@ public static class BackupArchive
         string? rankingJson,
         string? clipboardDbPath)
     {
-        if (File.Exists(zipPath))
-            File.Delete(zipPath);
-        using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        zipPath = Path.GetFullPath(zipPath);
+        var temporary = Path.Combine(Path.GetDirectoryName(zipPath)!, "." + Path.GetFileName(zipPath) + "." + Guid.NewGuid().ToString("n") + ".tmp");
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+                    WriteContents(zip, categories, settings, snippetsJson, notesZipFolder, rankingJson, clipboardDbPath);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, zipPath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    static void WriteContents(
+        ZipArchive zip,
+        IReadOnlyList<string> categories,
+        IReadOnlyDictionary<string, string> settings,
+        string? snippetsJson,
+        string? notesZipFolder,
+        string? rankingJson,
+        string? clipboardDbPath)
+    {
         var manifest = new BackupManifest(SchemaVersion, DateTime.UtcNow, categories);
         WriteEntry(zip, "manifest.json", JsonSerializer.Serialize(manifest));
         if (categories.Contains(SettingsAndShortcuts))

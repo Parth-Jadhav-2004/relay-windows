@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Tinycast.Features.Updates;
 
@@ -15,7 +16,8 @@ internal sealed record GitHubRelease(
     Version Version,
     string AssetName,
     long AssetId,
-    long Size);
+    long Size,
+    string? Digest);
 
 internal static class UpdatesClient
 {
@@ -26,6 +28,8 @@ internal static class UpdatesClient
     public static string ReleasesApi => "https://api.github.com/repos/" + Repository + "/releases";
     public static string RepoApi => "https://api.github.com/repos/" + Repository;
     public static string ReleasesPage => "https://github.com/" + Repository + "/releases";
+
+    static readonly HttpClient Http = CreateClient();
 
     public static Version Installed
     {
@@ -53,59 +57,79 @@ internal static class UpdatesClient
         if (string.IsNullOrWhiteSpace(GitHubAuth.Token))
             throw new InvalidOperationException(GitHubAuth.MissingTokenMessage());
 
-        using var client = CreateClient();
-        await EnsureRepoVisible(client);
+        await EnsureRepoVisible();
 
-        using var response = await client.GetAsync(ReleasesApi + "?per_page=30");
+        using var request = GitHubRequest(HttpMethod.Get, ReleasesApi + "?per_page=30", "application/vnd.github+json");
+        using var response = await Http.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             Log.Write("update releases HTTP " + (int)response.StatusCode);
             throw new InvalidOperationException(DescribeHttpFailure(response.StatusCode, "list releases"));
         }
 
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("GitHub returned an unexpected releases payload.");
-
-        var listings = new List<UpdateRelease.ReleaseListing>();
-        var details = new Dictionary<string, ParsedRelease>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in doc.RootElement.EnumerateArray())
+        JsonDocument doc;
+        try
         {
-            var parsed = ParseRelease(item);
-            if (parsed is null)
-                continue;
-            listings.Add(new UpdateRelease.ReleaseListing(
-                parsed.Tag, parsed.Version, parsed.Draft, parsed.Prerelease,
-                parsed.Assets.Select(a => a.Name).ToList()));
-            details[parsed.Tag] = parsed;
+            doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("GitHub returned a non-JSON response.");
         }
 
-        var selected = UpdateRelease.SelectLatest(listings, RuntimeInformation.ProcessArchitecture)
-            ?? throw new InvalidOperationException("No Windows release is published yet. Installed " + InstalledLabel + ".");
-        var latest = details[selected.Tag];
-        var pick = UpdateRelease.PickAsset(latest.Assets.Select(a => a.Name), RuntimeInformation.ProcessArchitecture)!;
-        var chosen = latest.Assets.First(a => a.Name.Equals(pick, StringComparison.OrdinalIgnoreCase));
-        return new GitHubRelease(latest.Tag, latest.Name, latest.Notes, latest.Version, chosen.Name, chosen.Id, chosen.Size);
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("GitHub returned an unexpected releases payload.");
+
+            var listings = new List<UpdateRelease.ReleaseListing>();
+            var details = new Dictionary<string, ParsedRelease>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var parsed = ParseRelease(item);
+                if (parsed is null)
+                    continue;
+                listings.Add(new UpdateRelease.ReleaseListing(
+                    parsed.Tag, parsed.Version, parsed.Draft, parsed.Prerelease,
+                    parsed.Assets.Select(a => a.Name).ToList()));
+                details[parsed.Tag] = parsed;
+            }
+
+            var selected = UpdateRelease.SelectLatest(listings, RuntimeInformation.ProcessArchitecture)
+                ?? throw new InvalidOperationException("No Windows release is published yet. Installed " + InstalledLabel + ".");
+            var latest = details[selected.Tag];
+            var pick = UpdateRelease.PickAsset(latest.Assets.Select(a => a.Name), RuntimeInformation.ProcessArchitecture)!;
+            var chosen = latest.Assets.First(a => a.Name.Equals(pick, StringComparison.OrdinalIgnoreCase));
+            return new GitHubRelease(latest.Tag, latest.Name, latest.Notes, latest.Version, chosen.Name, chosen.Id, chosen.Size, chosen.Digest);
+        }
     }
 
     public static async Task<string> DownloadAsync(GitHubRelease release, CancellationToken token = default)
     {
         AppPaths.EnsureRoot();
         var stagingRoot = Path.Combine(AppPaths.UpdatesDir, release.Version.ToString());
-        if (Directory.Exists(stagingRoot))
-            Directory.Delete(stagingRoot, true);
+        try
+        {
+            if (Directory.Exists(stagingRoot))
+                Directory.Delete(stagingRoot, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            stagingRoot = Path.Combine(AppPaths.UpdatesDir, release.Version + "-" + Guid.NewGuid().ToString("n"));
+            Log.Write("update staging in use, using " + stagingRoot);
+        }
+
         Directory.CreateDirectory(stagingRoot);
         var zipPath = Path.Combine(AppPaths.UpdatesDir, release.AssetName);
-        using var client = CreateClient();
-        client.DefaultRequestHeaders.Accept.Clear();
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
         var url = "https://api.github.com/repos/" + Repository + "/releases/assets/" + release.AssetId;
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+        using var request = GitHubRequest(HttpMethod.Get, url, "application/octet-stream");
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         response.EnsureSuccessStatusCode();
         await using (var input = await response.Content.ReadAsStreamAsync(token))
         await using (var output = File.Create(zipPath))
             await input.CopyToAsync(output, token);
 
+        VerifyDigest(zipPath, release.Digest);
         ExtractZip(zipPath, stagingRoot);
         try { File.Delete(zipPath); } catch (Exception) { }
         return ResolvePayload(stagingRoot);
@@ -128,23 +152,32 @@ internal static class UpdatesClient
         var dst = CmdLiteral(dest);
         var exeLit = CmdLiteral(exe);
         var logLit = CmdLiteral(log);
+        var pid = Environment.ProcessId.ToString();
         File.WriteAllText(bat, $"""
             @echo off
             setlocal EnableExtensions
             set "SRC={src}"
             set "DST={dst}"
             set "EXE={exeLit}"
+            set "OLDPID={pid}"
             >"{logLit}" echo apply %DATE% %TIME%
             >>"{logLit}" echo SRC=%SRC%
             >>"{logLit}" echo DST=%DST%
             >>"{logLit}" echo EXE=%EXE%
+            >>"{logLit}" echo OLDPID=%OLDPID%
             if not exist "%SRC%\Tinycast.exe" (
               >>"{logLit}" echo missing payload
               exit /b 1
             )
+            set /a WAITS=0
             :wait
+            set /a WAITS+=1
+            if %WAITS% GEQ 60 (
+              >>"{logLit}" echo wait timeout
+              exit /b 1
+            )
             ping -n 2 127.0.0.1 >nul
-            tasklist /FI "IMAGENAME eq Tinycast.exe" | findstr /I /C:"Tinycast.exe" >nul
+            tasklist /FI "PID eq %OLDPID%" 2>nul | findstr /C:" %OLDPID% " >nul
             if not errorlevel 1 goto wait
             robocopy "%SRC%" "%DST%" /E /IS /IT /R:4 /W:1 /NFL /NDL /NJH /NJS
             >>"{logLit}" echo robocopy=%ERRORLEVEL%
@@ -156,7 +189,7 @@ internal static class UpdatesClient
             exit /b 0
             """);
 
-        Process.Start(new ProcessStartInfo
+        var started = Process.Start(new ProcessStartInfo
         {
             FileName = "cmd.exe",
             Arguments = "/d /c start \"TinycastUpdate\" /min cmd.exe /d /c \"" + bat + "\"",
@@ -164,6 +197,8 @@ internal static class UpdatesClient
             CreateNoWindow = true,
             WorkingDirectory = AppPaths.UpdatesDir,
         });
+        if (started is null)
+            throw new InvalidOperationException("update failed to start");
     }
 
     static string CmdLiteral(string path) =>
@@ -177,17 +212,24 @@ internal static class UpdatesClient
             Timeout = TimeSpan.FromMinutes(5),
         };
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Tinycast-Windows/" + InstalledLabel);
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
-        var token = GitHubAuth.Token;
-        if (!string.IsNullOrWhiteSpace(token))
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 
-    static async Task EnsureRepoVisible(HttpClient client)
+    static HttpRequestMessage GitHubRequest(HttpMethod method, string url, string accept)
     {
-        using var response = await client.GetAsync(RepoApi);
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.TryAddWithoutValidation("Accept", accept);
+        var token = GitHubAuth.Token;
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return request;
+    }
+
+    static async Task EnsureRepoVisible()
+    {
+        using var request = GitHubRequest(HttpMethod.Get, RepoApi, "application/vnd.github+json");
+        using var response = await Http.SendAsync(request);
         if (response.IsSuccessStatusCode)
             return;
         Log.Write("update repo HTTP " + (int)response.StatusCode);
@@ -210,7 +252,7 @@ internal static class UpdatesClient
         Version Version,
         bool Draft,
         bool Prerelease,
-        List<(string Name, long Id, long Size)> Assets);
+        List<(string Name, long Id, long Size, string? Digest)> Assets);
 
     static ParsedRelease? ParseRelease(JsonElement root)
     {
@@ -222,7 +264,7 @@ internal static class UpdatesClient
         var notes = UpdateRelease.NotesSummary(root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() : null);
         var draft = root.TryGetProperty("draft", out var draftEl) && draftEl.ValueKind == JsonValueKind.True;
         var prerelease = root.TryGetProperty("prerelease", out var preEl) && preEl.ValueKind == JsonValueKind.True;
-        var assets = new List<(string Name, long Id, long Size)>();
+        var assets = new List<(string Name, long Id, long Size, string? Digest)>();
         if (root.TryGetProperty("assets", out var assetsEl) && assetsEl.ValueKind == JsonValueKind.Array)
         {
             foreach (var asset in assetsEl.EnumerateArray())
@@ -232,11 +274,42 @@ internal static class UpdatesClient
                     continue;
                 var id = asset.TryGetProperty("id", out var idEl) && idEl.TryGetInt64(out var assetId) ? assetId : 0;
                 var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt64(out var assetSize) ? assetSize : 0;
-                assets.Add((assetName, id, size));
+                string? digest = null;
+                if (asset.TryGetProperty("digest", out var digestEl) && digestEl.ValueKind == JsonValueKind.String)
+                    digest = digestEl.GetString();
+                assets.Add((assetName, id, size, string.IsNullOrWhiteSpace(digest) ? null : digest));
             }
         }
 
         return new ParsedRelease(tag, name, notes, version, draft, prerelease, assets);
+    }
+
+    static void VerifyDigest(string zipPath, string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest))
+        {
+            Log.Write("update digest: verification skipped");
+            return;
+        }
+
+        const string prefix = "sha256:";
+        if (!digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Write("update digest: verification skipped (not sha256)");
+            return;
+        }
+
+        var expected = digest[prefix.Length..].Trim();
+        if (expected.Length == 0)
+        {
+            Log.Write("update digest: verification skipped");
+            return;
+        }
+
+        using var stream = File.OpenRead(zipPath);
+        var actual = Convert.ToHexString(SHA256.HashData(stream));
+        if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Update zip SHA256 does not match the GitHub digest.");
     }
 
     static void ExtractZip(string zipPath, string dest)

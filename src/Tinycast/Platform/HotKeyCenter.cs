@@ -18,6 +18,7 @@ internal sealed class HotKeyCenter : IDisposable
     List<HotKeyBinding> _bindings = [];
     List<(string Keyword, string Id)> _keywords = [];
     readonly StringBuilder _typed = new();
+    IntPtr _typedHwnd;
 
     public event Action? TogglePalette;
     public event Action<string>? Command;
@@ -204,6 +205,16 @@ internal sealed class HotKeyCenter : IDisposable
             done(chord);
             NativeMethods.PostMessage(_hwnd, NativeMethods.WmResumeHotKeys, IntPtr.Zero, IntPtr.Zero);
             return true;
+        }
+
+        if (down)
+        {
+            var hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd != _typedHwnd)
+            {
+                _typedHwnd = hwnd;
+                _typed.Clear();
+            }
         }
 
         if (down && TryExpandSnippet(vk))

@@ -1,4 +1,5 @@
-﻿using System.IO.Compression;
+﻿using Microsoft.Data.Sqlite;
+using System.IO.Compression;
 using System.Text.Json;
 using Tinycast;
 using Tinycast.DesignSystem;
@@ -128,6 +129,7 @@ void Check(string name, bool ok, string? detail = null)
     var usage = SearchRelevance.Total(SearchRelevance.Quality("vis", fields) ?? 0, LauncherRankingStore.MaximumUsage);
     var exact = SearchRelevance.Total(SearchRelevance.Quality("visual studio", fields) ?? 0, 0);
     Check("max frecency cannot overtake an exact name", exact > usage, $"{exact} vs {usage}");
+    Check("foobar bar word-start", FuzzyMatcher.Match("bar", "foobar bar")?.Tier == FuzzyTier.WordStart);
 }
 
 {
@@ -157,6 +159,42 @@ void Check(string name, bool ok, string? detail = null)
     Check("currency conversion uses the store", CalcEngine.Evaluate("10 USD in EUR", now, rates)?.CopyText.StartsWith("5") == true);
     Check("missing rates stay non-actionable", CalcEngine.Evaluate("10 USD in EUR", now, null)?.IsActionable == false);
     Check("divide by zero is not a card", CalcEngine.Evaluate("1/0", now) is null);
+
+    CalcResult? overflowWeeks = null;
+    var weeksThrew = false;
+    try { overflowWeeks = CalcEngine.Evaluate("monday in 2000000000 weeks", now); }
+    catch { weeksThrew = true; }
+    Check("overflow weeks does not throw", !weeksThrew && (overflowWeeks is null || overflowWeeks.IsError));
+
+    CalcResult? overflowHours = null;
+    var hoursThrew = false;
+    try { overflowHours = CalcEngine.Evaluate("now + 9999999999 hours", now); }
+    catch { hoursThrew = true; }
+    Check("overflow hours does not throw", !hoursThrew && (overflowHours is null || overflowHours.IsError));
+
+    CalcResult? hexOverflow = null;
+    var hexThrew = false;
+    try { hexOverflow = CalcEngine.Evaluate("0xFFFFFFFFFFFFFFFFF", now); }
+    catch { hexThrew = true; }
+    Check("hex overflow does not crash", !hexThrew && (hexOverflow is null || hexOverflow.IsError));
+
+    Check("timezone invalid clock rejected", CalcEngine.Evaluate("25:99 to london", now) is null);
+    var epoch = new CalcContext(new DateTime(1969, 12, 31, 23, 59, 58, 500), TimeZoneInfo.Utc);
+    Check("negative ms floor", CalcEngine.Evaluate("now to unix", epoch)?.CopyText == "-2");
+    Check("50% == 0.5 is true", CalcEngine.Evaluate("50% == 0.5", now)?.CopyText == "true");
+    Check("1e19 to hex is error", CalcEngine.Evaluate("1e19 to hex", now)?.IsError == true);
+    var ratioOverflow = CalcEngine.Evaluate("ratio of 99999999999999999999 to 1", now);
+    Check("ratio overflow", ratioOverflow is null || ratioOverflow.IsError);
+    var compactInf = CalcEngine.Evaluate("1e308k", now);
+    Check("1e308k not Infinity", compactInf is null || compactInf.IsError);
+    var mixedSum = CalcEngine.Evaluate("sum of 1, abc, 3", now);
+    Check("sum of mixed list not silently 4", mixedSum is null || mixedSum.IsError);
+    Check("sum of 1, 2, 3", CalcEngine.Evaluate("sum of 1, 2, 3", now)?.CopyText == "6");
+    Check("0.3048m is 1 foot", CalcEngine.Evaluate("0.3048m", now)?.CopyText == "1 foot");
+    Check("CompoundFeetInches carry", CalcFormatter.CompoundFeetInches(1 + 11.9 / 12) == "2 feet");
+    Check("1m has no 12 inches", CalcEngine.Evaluate("1m", now) is { IsError: false } meter && !meter.Display.Contains("12 inches"));
+    Check("2x3 is implicit multiply", CalcEngine.Evaluate("2x3", now)?.CopyText == "6");
+    Check("1,23 is rejected", CalcEngine.Evaluate("1,23", now) is null || CalcEngine.Evaluate("1,23", now)!.IsError);
 }
 
 {
@@ -175,6 +213,15 @@ void Check(string name, bool ok, string? detail = null)
         new StoredSnippet("a", "A", "a", "{snippet:a}"),
     ]);
     Check("snippet cycle stops", loop.Text.Contains("{snippet:", StringComparison.Ordinal));
+    var siblings = SnippetTemplateEngine.Expand("{snippet:a} {snippet:a}", new ExpansionContext(), snippets:
+    [
+        new StoredSnippet("a", "A", "a", "x"),
+    ]);
+    Check("sibling snippet expansion", siblings.Text == "x x");
+    Check("nested braces", SnippetTemplateEngine.Expand("{argument name default=hello {world}}", new ExpansionContext()).Text == "hello {world}");
+    Check("default=hello world",
+        SnippetTemplateEngine.Expand("{argument name default=hello world}", new ExpansionContext()).Text == "hello world"
+        && SnippetTemplateEngine.DeclaredArguments("{argument name default=hello world}").Count == 0);
 }
 
 {
@@ -223,7 +270,10 @@ void Check(string name, bool ok, string? detail = null)
     var b = new HotKeyBinding { CommandId = "two", Chord = new HotKeyChord(1, 0x20) };
     var c = new HotKeyBinding { CommandId = "three", Chord = new HotKeyChord(1, 0x20), AppPath = "notepad.exe" };
     Check("same chord conflicts", HotKeyConflicts.Find([a, b]).Count == 1);
-    Check("per-app chord does not conflict globally", HotKeyConflicts.Find([a, c]).Count == 0);
+    Check("global vs per-app conflict", HotKeyConflicts.Find([a, c]).Count == 1);
+    var d = new HotKeyBinding { CommandId = "four", Chord = new HotKeyChord(1, 0x20), AppPath = "word.exe" };
+    Check("distinct per-app chords do not conflict", HotKeyConflicts.Find([c, d]).Count == 0);
+    Check("F1 label", new HotKeyChord(0, 0x70).Label == "F1");
     Check("hyper includes all four modifiers", HotKeyChord.Hyper(0x41).IsHyper);
 }
 
@@ -269,6 +319,21 @@ void Check(string name, bool ok, string? detail = null)
     Check("last tile command is readable before the next command", last == "left-half");
     memory.Forget(1);
     Check("forget clears restore memory", memory.Restore(1) is null && memory.LastCommand(1) is null);
+    var tight = new ScreenSpec(0, new RectD(0, 0, 400, 300), new RectD(0, 0, 400, 300));
+    var vis = tight.VisibleFrame;
+    var half = WindowPlacementEngine.PlacementFor(new PlacementInput
+    {
+        Command = "left-half",
+        WindowFrame = new RectD(10, 10, 100, 80),
+        Screens = [tight],
+        Gap = -50,
+    });
+    Check("negative gap half stays on screen",
+        half is { } tiled
+        && tiled.Frame.MinX >= vis.MinX && tiled.Frame.MinY >= vis.MinY
+        && tiled.Frame.MaxX <= vis.MaxX && tiled.Frame.MaxY <= vis.MaxY
+        && tiled.Frame.Width > 0 && tiled.Frame.Height > 0,
+        half?.Frame.ToString());
 }
 
 {
@@ -290,6 +355,9 @@ void Check(string name, bool ok, string? detail = null)
     Check("filter volumes by letter", dOnly.Count == 1 && dOnly[0].Path == @"D:\");
     var ignore = new FileSearchIgnoreList(FileSearchIgnoreList.Defaults);
     Check("shipped ignore covers node_modules", ignore.Excludes(@"C:\src\node_modules\pkg\index.js"));
+    var classIgnore = new FileSearchIgnoreList(["[abc].txt"]);
+    Check("character-class glob",
+        classIgnore.Excludes("a.txt") && classIgnore.Excludes("c.txt") && !classIgnore.Excludes("[abc].txt"));
     Check("dot component is structurally hidden", FileSearchQuery.IsExcludedPath(@"C:\Users\.git\config", ignore));
     Check("$ component is structurally hidden", FileSearchQuery.IsExcludedPath(@"D:\$Recycle.Bin\a", ignore));
     Check("images accept png", FileSearchFilter.Images.Accepts(@"C:\a.png", false));
@@ -344,6 +412,11 @@ void Check(string name, bool ok, string? detail = null)
         Check("delete removes the row", store.Get(first.Id) is null);
         var named = store.Insert(ClipboardKind.File, @"C:\Users\me\report.pdf", filePath: @"C:\Users\me\report.pdf");
         Check("file list title is the filename", named.Preview == "report.pdf");
+        store.Insert(ClipboardKind.Text, "percent % sign");
+        var wildcard = store.Search("%");
+        Check("clipboard like escapes percent",
+            wildcard.Count == 1 && wildcard[0].Text.Contains('%'),
+            string.Join("|", wildcard.Select(i => i.Text)));
     }
     finally
     {
@@ -356,6 +429,8 @@ void Check(string name, bool ok, string? detail = null)
     Check("today bucket", DateBuckets.From(now, now) == DateBucket.Today);
     Check("yesterday bucket", DateBuckets.From(now.AddDays(-1), now) == DateBucket.Yesterday);
     Check("earlier bucket", DateBuckets.From(now.AddYears(-1), now) == DateBucket.Earlier);
+    Check("new year week bucket",
+        DateBuckets.From(new DateTime(2025, 12, 31), new DateTime(2026, 1, 2)) == DateBucket.ThisWeek);
     Check("copied today label", ClipboardPresentation.CopiedLabel(now, now).StartsWith("Today at ", StringComparison.Ordinal));
     Check("file size 1.7 MB", ClipboardPresentation.FileSizeLabel(1_700_000) == "1.7 MB");
     Check("word count", ClipboardPresentation.WordCount("one two  three") == 3);
@@ -564,6 +639,14 @@ void Check(string name, bool ok, string? detail = null)
         GITHUB_TOKEN=ignored # trailing
         """);
     Check("dotenv reads quoted token", env["TINYCAST_GITHUB_TOKEN"] == "ghp_example");
+    var quotedEnv = DotEnv.Parse("""
+        KEY="value" # comment
+        HASH="hash # inside"
+        PLAIN=plain # comment
+        """);
+    Check("dotenv quoted value drops trailing comment", quotedEnv["KEY"] == "value");
+    Check("dotenv keeps hash inside quotes", quotedEnv["HASH"] == "hash # inside");
+    Check("dotenv plain trailing comment", quotedEnv["PLAIN"] == "plain");
     Check("github token strips bearer", GitHubToken.Sanitize("Bearer ghp_example") == "ghp_example");
     Check("github token rejects blank", GitHubToken.Sanitize("  ") is null);
 }
@@ -573,7 +656,13 @@ void Check(string name, bool ok, string? detail = null)
     Check("settings has no apple shortcuts pane", SettingsCatalog.Panes.All(p => p.Title != "Apple Shortcuts"));
     Check("url fallback detects host", FallbackCatalog.LooksLikeUrl("github.com"));
     Check("url fallback rejects words", !FallbackCatalog.LooksLikeUrl("open notepad"));
+    Check("https:// is not a url", !FallbackCatalog.LooksLikeUrl("https://"));
+    Check("installed apps settings uri is unique",
+        MsSettingsCatalog.All.Count(e => e.Uri == "ms-settings:appsfeatures") == 1
+        && MsSettingsCatalog.All.Any(e => e.Title == "Installed apps" && e.Uri == "ms-settings:installedapps"));
     Check("clipboard filter cycles", ClipboardListFilterLogic.Next(ClipboardListFilter.All) == ClipboardListFilter.Text);
+    Check("clipboard scheme-only is not a link", !ClipboardListFilterLogic.IsLink("https://"));
+    Check("clipboard mailto-only is not a link", !ClipboardListFilterLogic.IsLink("mailto:"));
     Check("clipboard link match", ClipboardListFilterLogic.IsLink("https://example.com"));
     var join = MeetingJoinCard.NextJoinable(
         [new MeetingEvent("1", "Standup", DateTime.Now.AddMinutes(10), DateTime.Now.AddMinutes(40), new MeetingLink(MeetingProvider.Zoom, new Uri("https://zoom.us/j/1"), null), false)],
@@ -601,6 +690,295 @@ void Check(string name, bool ok, string? detail = null)
     Check("uninstall leftover labels megabytes", UninstallLeftoverLogic.SizeLabel(1_500_000).Contains("MB"));
     Check("update notes strip marker", UpdateRelease.NotesSummary("Hello\n<!-- tinycast:install -->\ninstall") == "Hello");
 }
+
+void Regression(string name, Action test)
+{
+    try { test(); }
+    catch (Exception ex) { Check(name, false, ex.GetType().Name + ": " + ex.Message); }
+}
+
+bool Throws<T>(Action action) where T : Exception
+{
+    try { action(); return false; }
+    catch (T) { return true; }
+    catch (Exception) { return false; }
+}
+
+Regression("backup atomic export", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "tinycast-atomic-" + Guid.NewGuid().ToString("n"));
+    Directory.CreateDirectory(dir);
+    try
+    {
+        var zip = Path.Combine(dir, "backup.tinycast");
+        var notes = Path.Combine(dir, "notes");
+        Directory.CreateDirectory(notes);
+        var note = Path.Combine(notes, "locked.md");
+        File.WriteAllText(note, "note content");
+        BackupArchive.Write(zip, [BackupArchive.Snippets], new Dictionary<string, string>(), "original", null, null, null);
+        var original = File.ReadAllBytes(zip);
+        using (var locked = new FileStream(note, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Check("export reports unreadable source", Throws<IOException>(() =>
+                BackupArchive.Write(zip, [BackupArchive.Notes], new Dictionary<string, string>(), null, notes, null, null)));
+            Check("failed export preserves previous bytes", File.ReadAllBytes(zip).SequenceEqual(original));
+            var fresh = Path.Combine(dir, "fresh.tinycast");
+            Check("new export reports unreadable source", Throws<IOException>(() =>
+                BackupArchive.Write(fresh, [BackupArchive.Notes], new Dictionary<string, string>(), null, notes, null, null)));
+            Check("failed new export leaves no archive", !File.Exists(fresh));
+        }
+        BackupArchive.Write(zip, [BackupArchive.Notes], new Dictionary<string, string>(), null, notes, null, null);
+        Check("successful export replaces with complete archive", BackupArchive.ReadEntryText(zip, "notes/locked.md") == "note content"
+            && BackupArchive.ReadEntryText(zip, "snippets.json") is null);
+        Check("exports clean up staging files", Directory.GetFiles(dir).Length == 1);
+    }
+    finally { Directory.Delete(dir, true); }
+});
+
+Regression("clipboard FTS mutations", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "tinycast-fts-" + Guid.NewGuid().ToString("n"));
+    Directory.CreateDirectory(dir);
+    try
+    {
+        using var store = new ClipboardStore(dir);
+        using var db = new SqliteConnection($"Data Source={Path.Combine(dir, "clipboard.sqlite")};Pooling=False");
+        db.Open();
+        void Sql(string text)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = text;
+            cmd.ExecuteNonQuery();
+        }
+        bool Integrity() => !Throws<SqliteException>(() => Sql("INSERT INTO items_fts(items_fts, rank) VALUES('integrity-check', 1)"));
+        var item = store.Insert(ClipboardKind.Text, "originalword");
+        Check("clipboard FTS handles operator words and whitespace", store.Search("AND\tOR\nNOT").Count == 0);
+        Check("insert FTS agrees with backing columns", Integrity());
+        store.SetOcr(item.Id, "oldocrword");
+        Check("OCR FTS agrees with backing columns", Integrity());
+        store.SetOcr(item.Id, "newocrword");
+        Check("OCR replacement removes old search tokens", store.Search("oldocrword").Count == 0);
+        Check("OCR replacement keeps original and new tokens", store.Search("originalword").Count == 1 && store.Search("newocrword").Count == 1);
+        store.SetOcr(item.Id, "");
+        Check("empty OCR removes previous tokens", store.Search("newocrword").Count == 0 && Integrity());
+        store.Delete(item.Id);
+        store.Delete(item.Id);
+        store.SetOcr(item.Id, "ghostword");
+        Check("delete and late OCR leave no index debris", Integrity() && store.Search("").Count == 0);
+        var image = Path.Combine(store.ImageRoot, "retained.png");
+        File.WriteAllBytes(image, [1, 2, 3]);
+        var retained = store.Insert(ClipboardKind.Image, "retainedword", image);
+        Sql("DROP TABLE items_fts");
+        Check("index failure is surfaced on insert", Throws<SqliteException>(() => store.Insert(ClipboardKind.Text, "rollbackword")));
+        Check("failed insert rolls back backing row", store.Search("").Count == 1);
+        Check("index failure is surfaced on OCR", Throws<SqliteException>(() => store.SetOcr(retained.Id, "rollbackocr")));
+        Check("failed OCR preserves backing text", store.Get(retained.Id)?.OcrText is null);
+        Check("index failure is surfaced on delete", Throws<SqliteException>(() => store.Delete(retained.Id)));
+        Check("failed delete preserves row and blob", store.Get(retained.Id) is not null && File.Exists(image));
+        Check("search does not hide index errors", Throws<SqliteException>(() => store.Search("retainedword")));
+    }
+    finally { Directory.Delete(dir, true); }
+});
+
+foreach (var legacyOperation in new[] { "OCR", "delete" })
+{
+    Regression("clipboard repairs legacy " + legacyOperation, () =>
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "tinycast-legacy-fts-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            long retainedId;
+            long deletedId;
+            using (var original = new ClipboardStore(dir))
+            {
+                retainedId = original.Insert(ClipboardKind.Text, "originalword", sourceId: "legacy-source").Id;
+                original.TogglePin(retainedId);
+                deletedId = original.Insert(ClipboardKind.Text, "deletedword").Id;
+            }
+            var connectionString = $"Data Source={Path.Combine(dir, "clipboard.sqlite")};Pooling=False";
+            void Sql(string text)
+            {
+                using var db = new SqliteConnection(connectionString);
+                db.Open();
+                using var cmd = db.CreateCommand();
+                cmd.CommandText = text;
+                cmd.ExecuteNonQuery();
+            }
+            bool Integrity()
+            {
+                try
+                {
+                    Sql("INSERT INTO items_fts(items_fts, rank) VALUES('integrity-check', 1)");
+                    return true;
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 11)
+                {
+                    return false;
+                }
+            }
+            Check("legacy " + legacyOperation + " fixture starts consistent", Integrity());
+            if (legacyOperation == "OCR")
+            {
+                Sql($"UPDATE items SET ocr_text = 'legacyocrword' WHERE id = {retainedId}");
+                try { Sql($"DELETE FROM items_fts WHERE rowid = {retainedId}"); }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 11) { }
+                Sql($"INSERT INTO items_fts(rowid, text, ocr_text) VALUES ({retainedId}, 'originalword legacyocrword', 'legacyocrword')");
+            }
+            else
+            {
+                Sql($"DELETE FROM items WHERE id = {deletedId}");
+                try { Sql($"DELETE FROM items_fts WHERE rowid = {deletedId}"); }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 11) { }
+            }
+            Check("legacy " + legacyOperation + " fixture has inconsistent external content", !Integrity());
+            using (var reopened = new ClipboardStore(dir))
+            {
+                Check("reopen repairs legacy " + legacyOperation + " FTS", Integrity());
+                Check("legacy " + legacyOperation + " repair preserves row metadata",
+                    reopened.Get(retainedId) is { Text: "originalword", Pinned: true, SourceId: "legacy-source" });
+                Check("legacy " + legacyOperation + " repaired text is searchable",
+                    reopened.Search("originalword").Single().Id == retainedId);
+                if (legacyOperation == "OCR")
+                    Check("legacy OCR remains searchable after repair",
+                        reopened.Search("legacyocrword originalword").Single().Id == retainedId);
+                else
+                    Check("legacy deleted row stays deleted", reopened.Get(deletedId) is null && reopened.Search("deletedword").Count == 0);
+                reopened.SetOcr(retainedId, "replacementocrword");
+                Check("legacy " + legacyOperation + " repaired index supports OCR replacement",
+                    reopened.Search("replacementocrword originalword").Single().Id == retainedId
+                    && reopened.Search("legacyocrword").Count == 0 && Integrity());
+                reopened.Delete(retainedId);
+                Check("legacy " + legacyOperation + " repaired index supports delete",
+                    reopened.Get(retainedId) is null && reopened.Search("replacementocrword").Count == 0
+                    && reopened.Search("originalword").Count == 0 && Integrity());
+            }
+            using var healthy = new ClipboardStore(dir);
+            Check("legacy " + legacyOperation + " repair survives another reopen", Integrity());
+        }
+        finally { Directory.Delete(dir, true); }
+    });
+}
+
+Regression("ranking file validation", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "tinycast-rank-validation-" + Guid.NewGuid().ToString("n"));
+    Directory.CreateDirectory(dir);
+    try
+    {
+        var file = Path.Combine(dir, "ranking.json");
+        foreach (var json in new[] { "null", "[null]", "[{\"ItemKey\":null,\"SubmittedQuery\":\"a\",\"Count\":1}]", "[{\"ItemKey\":\"a\",\"SubmittedQuery\":null,\"Count\":1}]", "{broken", "{}" })
+        {
+            Regression("ranking tolerates " + json, () =>
+            {
+                File.WriteAllText(file, json);
+                var loaded = new LauncherRankingStore(file);
+                Check("invalid ranking file yields no usage: " + json, loaded.Usage("a").Count == 0);
+            });
+        }
+        var now = new DateTime(2026, 1, 1);
+        var records = Enumerable.Range(0, LauncherRankingStore.Cap + 5).Select(i => new LauncherRankingRecord
+        {
+            ItemKey = "app:" + i, SubmittedQuery = " Query ", Count = i + 1, LastUsed = now,
+        }).ToList();
+        File.WriteAllText(file, JsonSerializer.Serialize(records));
+        var store = new LauncherRankingStore(file, () => now);
+        Check("load applies ranking cap and normalization", store.Records.Count == LauncherRankingStore.Cap
+            && store.Records.All(r => r.SubmittedQuery == "query") && store.Records.All(r => r.Count > 5));
+        store.ReplaceAll(records);
+        Check("import applies ranking cap", store.Records.Count == LauncherRankingStore.Cap);
+        Regression("ranking null import collection", () =>
+        {
+            store.ReplaceAll(null!);
+            Check("null import collection is empty", store.Records.Count == 0);
+        });
+        Regression("ranking malformed import records", () =>
+        {
+            store.ReplaceAll([null!, new() { ItemKey = null!, Count = 1, SubmittedQuery = "a" },
+                new() { ItemKey = "app", Count = 1, SubmittedQuery = new string('a', 65) },
+                new() { ItemKey = "app", Count = 1, SubmittedQuery = "   " },
+                new() { ItemKey = "app", Count = 1, SubmittedQuery = " VALID " }]);
+            Check("import keeps only valid normalized records", store.Records.Count == 1 && store.Usage("valid").Count == 1);
+        });
+        store.ReplaceAll([
+            new() { ItemKey = "app", SubmittedQuery = "a", Count = int.MaxValue, LastUsed = now },
+            new() { ItemKey = "app", SubmittedQuery = "ab", Count = int.MaxValue, LastUsed = now },
+            new() { ItemKey = "other", SubmittedQuery = "a", Count = int.MaxValue, LastUsed = now },
+        ]);
+        Regression("ranking usage overflow", () =>
+        {
+            var usage = store.Usage("a");
+            Check("large count sums produce bounded positive scores", usage.Count == 2
+                && usage.Values.All(v => v > 0 && v <= LauncherRankingStore.MaximumUsage));
+        });
+        store.Record("app", "a");
+        Check("record saturates count without wrapping", store.Records.First(r => r.ItemKey == "app" && r.SubmittedQuery == "a").Count == int.MaxValue);
+        Check("score handles maximum count", LauncherRankingStore.Score(int.MaxValue, now, 1, now) > 0);
+        store.ReplaceAll([
+            new() { ItemKey = "app", SubmittedQuery = "a", Count = int.MaxValue, LastUsed = now },
+            new() { ItemKey = "other", SubmittedQuery = "a", Count = int.MaxValue, LastUsed = now },
+        ]);
+        var reopened = new LauncherRankingStore(file, () => now);
+        Check("ranking total across items cannot overflow after restart", reopened.Usage("a").Values.All(v => v > 0));
+        var before = File.ReadAllText(file);
+        var revision = store.Revision;
+        IEnumerable<LauncherRankingRecord> InterruptedImport()
+        {
+            yield return new() { ItemKey = "replacement", SubmittedQuery = "query", Count = 1 };
+            throw new InvalidDataException("Interrupted payload");
+        }
+        Check("interrupted ranking import is rejected", Throws<InvalidDataException>(() => store.ReplaceAll(InterruptedImport())));
+        Check("interrupted ranking import leaves memory and disk unchanged", store.Revision == revision
+            && store.Records.Count == 2 && store.Usage("a").Count == 2 && File.ReadAllText(file) == before);
+        var aliasFile = Path.Combine(dir, "aliases.json");
+        File.WriteAllText(aliasFile, """{"app":null,"APP:VALID":"alias"}""");
+        var aliases = new AliasStore(aliasFile);
+        Check("loaded aliases discard null values and retain case-insensitive lookup", !aliases.Items.ContainsKey("app")
+            && aliases.Get("app:valid") == "alias");
+    }
+    finally { Directory.Delete(dir, true); }
+});
+
+Regression("settings prevalidation", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "tinycast-settings-validation-" + Guid.NewGuid().ToString("n"));
+    Directory.CreateDirectory(dir);
+    try
+    {
+        var zip = Path.Combine(dir, "invalid.tinycast");
+        foreach (var invalid in new (string Key, string? Value)[]
+        {
+            (AppSettingsKey.FileSearchScopes, null), (AppSettingsKey.InterfaceSize, null),
+            (AppSettingsKey.ClipboardEnabled, "perhaps"), (AppSettingsKey.WindowGap, "overflow9999999999999"),
+            (AppSettingsKey.Appearance, "999"), (AppSettingsKey.PaletteLeft, "NaN"),
+        })
+        {
+            var settings = new AppSettings { ShowInTray = false, FileSearchScopes = ["original"] };
+            var before = JsonSerializer.Serialize(settings);
+            BackupArchive.Write(zip, [BackupArchive.SettingsAndShortcuts], new Dictionary<string, string>
+            {
+                [AppSettingsKey.ShowInTray] = "true", [invalid.Key] = invalid.Value!,
+            }, null, null, null, null);
+            Check("invalid mirrored value rejected: " + invalid.Key, Throws<InvalidDataException>(() =>
+                SettingsSnapshot.ApplyMirrored(settings, BackupArchive.ReadSettings(zip))));
+            Check("invalid payload applies nothing: " + invalid.Key, JsonSerializer.Serialize(settings) == before);
+        }
+        var target = new AppSettings();
+        var excluded = SettingsBackupCoverage.DeliberatelyExcluded.Keys.ToDictionary(key => key, _ => "true");
+        SettingsSnapshot.ApplyMirrored(target, excluded);
+        Check("all capability exclusions survive import", SettingsSnapshot.Capture(target)
+            .Where(kv => excluded.ContainsKey(kv.Key)).All(kv => kv.Value == "false"));
+        SettingsSnapshot.ApplyMirrored(target, new Dictionary<string, string>
+        {
+            [AppSettingsKey.ShowInTray] = "0", [AppSettingsKey.FileSearchScopes] = "one\ntwo|three",
+            [AppSettingsKey.WindowGap] = "999", [AppSettingsKey.PaletteLeft] = "12.5",
+            [AppSettingsKey.AiEnabled] = null!,
+        });
+        Check("valid settings retain clamping and list parsing", !target.ShowInTray && target.WindowGap == 64
+            && target.FileSearchScopes.SequenceEqual(new[] { "one", "two", "three" }) && target.PaletteLeft == 12.5 && !target.AiEnabled);
+    }
+    finally { Directory.Delete(dir, true); }
+});
 
 Console.WriteLine();
 Console.WriteLine(failed == 0 ? $"All {passed} checks passed." : $"{failed} failed, {passed} passed.");

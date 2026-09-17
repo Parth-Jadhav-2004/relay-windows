@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -80,9 +81,13 @@ internal static class AppIndex
             {
                 if (package.IsFramework || package.IsResourcePackage)
                     continue;
-                IReadOnlyList<AppListEntry> apps;
-                try { apps = package.GetAppListEntriesAsync().AsTask().GetAwaiter().GetResult(); }
-                catch (Exception) { continue; }
+                IReadOnlyList<AppListEntry>? apps;
+                try { apps = AwaitAppListEntries(package); }
+                catch (Exception ex)
+                {
+                    Log.Write("store apps: " + ex.Message);
+                    continue;
+                }
                 if (apps is null || apps.Count == 0)
                     continue;
 
@@ -111,7 +116,10 @@ internal static class AppIndex
                         entries[id] = new AppEntry(
                             id, name, AppEntryKind.Application, null, aumid, "\uE7F4", fields, logo);
                     }
-                    catch (Exception) { }
+                    catch (Exception ex)
+                    {
+                        Log.Write("store app: " + ex.Message);
+                    }
                 }
             }
         }
@@ -120,6 +128,10 @@ internal static class AppIndex
             Log.Write("Store scan: " + ex.Message);
         }
     }
+
+    // RefreshApps runs Scan on a threadpool thread. Task.Run still hops off STA if a caller is on the UI thread.
+    static IReadOnlyList<AppListEntry> AwaitAppListEntries(Windows.ApplicationModel.Package package) =>
+        Task.Run(async () => await package.GetAppListEntriesAsync().AsTask().ConfigureAwait(false)).GetAwaiter().GetResult();
 
     static bool IsRuntimePackage(string name) =>
         name.Contains("App Runtime", StringComparison.OrdinalIgnoreCase)
@@ -239,9 +251,13 @@ internal static class ProcessLauncher
             var manager = new PackageManager();
             foreach (var package in manager.FindPackagesForUser(""))
             {
-                IReadOnlyList<AppListEntry> apps;
-                try { apps = package.GetAppListEntriesAsync().AsTask().GetAwaiter().GetResult(); }
-                catch (Exception) { continue; }
+                IReadOnlyList<AppListEntry>? apps;
+                try { apps = AwaitAppListEntries(package); }
+                catch (Exception ex)
+                {
+                    Log.Write("AppList entries " + aumid + " " + ex.Message);
+                    continue;
+                }
                 if (apps is null)
                     continue;
                 foreach (var app in apps)
@@ -250,9 +266,12 @@ internal static class ProcessLauncher
                     {
                         if (!string.Equals(app.AppInfo?.AppUserModelId, aumid, StringComparison.OrdinalIgnoreCase))
                             continue;
-                        return app.LaunchAsync().AsTask().GetAwaiter().GetResult();
+                        return AwaitLaunch(app);
                     }
-                    catch (Exception) { }
+                    catch (Exception ex)
+                    {
+                        Log.Write("AppList launch entry " + aumid + " " + ex.Message);
+                    }
                 }
             }
         }
@@ -263,6 +282,12 @@ internal static class ProcessLauncher
 
         return false;
     }
+
+    static IReadOnlyList<AppListEntry> AwaitAppListEntries(Windows.ApplicationModel.Package package) =>
+        Task.Run(async () => await package.GetAppListEntriesAsync().AsTask().ConfigureAwait(false)).GetAwaiter().GetResult();
+
+    static bool AwaitLaunch(AppListEntry app) =>
+        Task.Run(async () => await app.LaunchAsync().AsTask().ConfigureAwait(false)).GetAwaiter().GetResult();
 
     static bool ShellExecute(string file, string? arguments)
     {
@@ -356,18 +381,39 @@ internal static class Paster
         NativeMethods.keybd_event(modifier, 0, NativeMethods.KeyeventfKeyUp, UIntPtr.Zero);
     }
 
+    static IntPtr _cachedHwnd;
+    static uint _cachedPid;
+    static string? _cachedPath;
+
     public static string? ForegroundProcessPath(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero)
             hwnd = NativeMethods.GetForegroundWindow();
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        if (hwnd == _cachedHwnd && pid == _cachedPid)
+            return _cachedPath;
         try
         {
-            var process = Process.GetProcessById((int)pid);
-            return process.MainModule?.FileName ?? process.ProcessName;
+            using var process = Process.GetProcessById((int)pid);
+            var path = process.MainModule?.FileName ?? process.ProcessName;
+            _cachedHwnd = hwnd;
+            _cachedPid = pid;
+            _cachedPath = path;
+            return path;
         }
-        catch (Exception)
+        catch (Win32Exception)
         {
+            _cachedHwnd = hwnd;
+            _cachedPid = pid;
+            _cachedPath = null;
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Write("foreground process: " + ex.Message);
+            _cachedHwnd = hwnd;
+            _cachedPid = pid;
+            _cachedPath = null;
             return null;
         }
     }
@@ -390,7 +436,7 @@ internal static class WindowInventory
             string? path = null;
             try
             {
-                var process = Process.GetProcessById((int)pid);
+                using var process = Process.GetProcessById((int)pid);
                 name = process.ProcessName;
                 path = process.MainModule?.FileName;
             }

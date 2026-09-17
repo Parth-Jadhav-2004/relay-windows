@@ -47,7 +47,7 @@ public sealed class LauncherRankingStore
         var existing = Records.Find(r => r.ItemKey == itemKey && r.SubmittedQuery == query);
         if (existing is not null)
         {
-            existing.Count++;
+            existing.Count = (int)Math.Min(int.MaxValue, (long)existing.Count + 1);
             existing.LastUsed = timestamp;
         }
         else
@@ -78,7 +78,7 @@ public sealed class LauncherRankingStore
         query = Normalize(query);
         if (query.Length == 0)
             return [];
-        var totals = new Dictionary<string, (int Count, DateTime LastUsed)>();
+        var totals = new Dictionary<string, (long Count, DateTime LastUsed)>();
         foreach (var record in Records)
         {
             if (!record.SubmittedQuery.StartsWith(query, StringComparison.Ordinal))
@@ -96,17 +96,21 @@ public sealed class LauncherRankingStore
 
         if (totals.Count == 0)
             return [];
-        var bucket = totals.Values.Sum(v => v.Count);
+        var bucket = 0L;
+        foreach (var value in totals.Values)
+            bucket += value.Count;
+        if (bucket <= 0)
+            return [];
         var timestamp = _now();
         return totals.ToDictionary(
             kv => kv.Key,
             kv => Score(kv.Value.Count, kv.Value.LastUsed, kv.Value.Count / (double)bucket, timestamp));
     }
 
-    public static int Score(int count, DateTime lastUsed, double share, DateTime timestamp)
+    public static int Score(long count, DateTime lastUsed, double share, DateTime timestamp)
     {
         var ageInDays = Math.Max(0, (timestamp - lastUsed).TotalDays);
-        var frequency = 2_000 * (1 - Math.Pow(count + 1, -0.30));
+        var frequency = 2_000 * (1 - Math.Pow(count + 1.0, -0.30));
         var recency = 700 * Math.Exp(-ageInDays / 14);
         var confidence = 300 * share * Math.Min(1, count / 3.0);
         return Math.Min(MaximumUsage, (int)Math.Round(frequency + recency + confidence));
@@ -128,12 +132,35 @@ public sealed class LauncherRankingStore
         Persist();
     }
 
-    public void ReplaceAll(IEnumerable<LauncherRankingRecord> records)
+    public void ReplaceAll(IEnumerable<LauncherRankingRecord?>? records)
     {
-        Records = records
-            .Where(r => r.Count > 0 && r.ItemKey.Length > 0 && r.SubmittedQuery.Length > 0)
-            .ToList();
+        Records = Sanitize(records);
         Persist();
+    }
+
+    static List<LauncherRankingRecord> Sanitize(IEnumerable<LauncherRankingRecord?>? records) => (records ?? [])
+        .Select(Validated)
+        .OfType<LauncherRankingRecord>()
+        .OrderByDescending(r => r.Count)
+        .ThenByDescending(r => r.LastUsed)
+        .Take(Cap)
+        .ToList();
+
+    static LauncherRankingRecord? Validated(LauncherRankingRecord? record)
+    {
+        if (record is null || string.IsNullOrWhiteSpace(record.ItemKey)
+            || record.SubmittedQuery is null || record.Count <= 0)
+            return null;
+        var query = Normalize(record.SubmittedQuery);
+        if (query.Length == 0 || query.Length > QueryLimit)
+            return null;
+        return new LauncherRankingRecord
+        {
+            ItemKey = record.ItemKey,
+            SubmittedQuery = query,
+            Count = record.Count,
+            LastUsed = record.LastUsed,
+        };
     }
 
     public static string Normalize(string query) =>
@@ -152,10 +179,7 @@ public sealed class LauncherRankingStore
         {
             if (!File.Exists(path))
                 return [];
-            return JsonSerializer.Deserialize<List<LauncherRankingRecord>>(File.ReadAllText(path))
-                ?.Where(r => r.Count > 0 && r.ItemKey.Length > 0 && r.SubmittedQuery.Length > 0)
-                .ToList()
-                ?? [];
+            return Sanitize(JsonSerializer.Deserialize<List<LauncherRankingRecord?>>(File.ReadAllText(path)));
         }
         catch (JsonException)
         {
@@ -201,8 +225,14 @@ public class JsonKeyedStore<T>
         {
             if (!File.Exists(_path))
                 return new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
-            return JsonSerializer.Deserialize<Dictionary<string, T>>(File.ReadAllText(_path))
-                ?? new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, T>>(File.ReadAllText(_path));
+            var items = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in loaded ?? [])
+            {
+                if (value is not null)
+                    items[key] = value;
+            }
+            return items;
         }
         catch (Exception)
         {

@@ -39,6 +39,7 @@ public sealed class AppCore
     DispatcherQueueTimer? _meetingTimer;
     DateTime _meetingWatchArmedAt = DateTime.Now;
     readonly HashSet<string> _joinedMeetings = [];
+    bool _calendarErrorShown;
     GitHubRelease? _pendingUpdate;
     string _updateStatus = "";
     bool _updateBusy;
@@ -71,6 +72,7 @@ public sealed class AppCore
     public FavoritesStore Favorites { get; private set; } = null!;
     public AliasStore Aliases { get; private set; } = null!;
     public VisibilityStore Visibility { get; private set; } = null!;
+    internal AppProcess AppProcesses { get; private set; } = null!;
     public List<AppEntry> Apps { get; private set; } = [];
     public List<StoredSnippet> Snippets { get; private set; } = [];
     public List<Quicklink> Quicklinks { get; private set; } = [];
@@ -119,6 +121,7 @@ public sealed class AppCore
 
         AppPaths.EnsureRoot();
         Settings = SettingsStore.Load();
+        AppProcesses = new AppProcess(app => ProcessLauncher.Open(app.Path!));
         LoadStores();
         AiCoordinator.Start();
         PaletteWindow = new PaletteWindow(this);
@@ -317,13 +320,25 @@ public sealed class AppCore
             return;
         }
 
-        Meetings = (await CalendarService.UpcomingAsync()).Where(m =>
-                Settings.CalendarExcludedIds.Count == 0
-                || string.IsNullOrWhiteSpace(m.CalendarId)
-                || !Settings.CalendarExcludedIds.Contains(m.CalendarId))
-            .ToList();
-        Palette.Notify();
-        UpdateTrayTitle();
+        try
+        {
+            Meetings = (await CalendarService.UpcomingAsync()).Where(m =>
+                    Settings.CalendarExcludedIds.Count == 0
+                    || string.IsNullOrWhiteSpace(m.CalendarId)
+                    || !Settings.CalendarExcludedIds.Contains(m.CalendarId))
+                .ToList();
+            _calendarErrorShown = false;
+            Palette.Notify();
+            UpdateTrayTitle();
+        }
+        catch (Exception ex)
+        {
+            Log.Write("calendar: " + ex.Message);
+            if (_calendarErrorShown)
+                return;
+            _calendarErrorShown = true;
+            ShowMessage(ex.Message, DialogTone.Danger);
+        }
     }
 
     void StartMeetingWatch()
@@ -660,6 +675,7 @@ public sealed class AppCore
             var sqliteImport = sqlitePath + ".import";
             if (BackupArchive.ExtractFile(file.Path, "clipboard.sqlite", sqliteImport))
             {
+                Clipboard.CancelPendingOcr();
                 ClipboardStore.Dispose();
                 try
                 {
@@ -876,16 +892,33 @@ public sealed class AppCore
         var windows = WindowInventory.Enumerate().ToList();
         foreach (var slot in layout.Slots)
         {
-            var match = windows.FirstOrDefault(w => w.ProcessName.Equals(slot.ProcessName, StringComparison.OrdinalIgnoreCase));
-            if (match is null && !string.IsNullOrWhiteSpace(slot.Path))
+            var matchIndex = -1;
+            if (!string.IsNullOrWhiteSpace(slot.Path))
             {
-                try { ProcessLauncher.Open(slot.Path); }
-                catch (Exception) { }
+                matchIndex = windows.FindIndex(w =>
+                    w.Path is not null && w.Path.Equals(slot.Path, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchIndex < 0)
+            {
+                matchIndex = windows.FindIndex(w =>
+                    w.ProcessName.Equals(slot.ProcessName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchIndex < 0)
+            {
+                if (!string.IsNullOrWhiteSpace(slot.Path))
+                {
+                    try { ProcessLauncher.Open(slot.Path); }
+                    catch (Exception) { }
+                }
+
                 continue;
             }
 
-            if (match is not null)
-                WindowInventory.Place(match.Hwnd, slot.Frame);
+            var match = windows[matchIndex];
+            windows.RemoveAt(matchIndex);
+            WindowInventory.Place(match.Hwnd, slot.Frame);
         }
     }
 
@@ -1046,6 +1079,7 @@ public sealed class AppCore
     public void Quit()
     {
         Log.Write("Quit");
+        AppProcesses.Dispose();
         NativeMethods.RemoveClipboardFormatListener(PaletteWindow?.Hwnd ?? IntPtr.Zero);
         _meetingTimer?.Stop();
         _hook?.Dispose();

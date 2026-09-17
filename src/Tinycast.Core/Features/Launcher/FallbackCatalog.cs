@@ -70,7 +70,10 @@ public static class FallbackCatalog
         if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
             || text.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
-            return true;
+        {
+            return Uri.TryCreate(text, UriKind.Absolute, out var absolute)
+                && absolute.Host.Length > 0;
+        }
         if (!text.Contains('.') || text.StartsWith('.'))
             return false;
         return Uri.TryCreate("https://" + text.TrimEnd('/'), UriKind.Absolute, out var uri)

@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Tinycast.Features.Updates;
 
 namespace Tinycast.Platform;
@@ -53,11 +55,23 @@ internal static class GitHubAuth
             return;
 
         AppPaths.EnsureRoot();
-        if (ReadFile(EnvFilePath) is null)
+        var existing = ReadFile(EnvFilePath);
+        if (existing is null)
+        {
             WriteEnvFile(EnvFilePath, vault);
+            CredentialStore.Set(LegacyVaultKey, "");
+            Log.Write("update token moved from Credential Locker to " + EnvFilePath);
+            return;
+        }
 
-        CredentialStore.Set(LegacyVaultKey, "");
-        Log.Write("update token moved from Credential Locker to " + EnvFilePath);
+        if (string.Equals(existing, vault, StringComparison.Ordinal))
+        {
+            CredentialStore.Set(LegacyVaultKey, "");
+            Log.Write("update token moved from Credential Locker to " + EnvFilePath);
+            return;
+        }
+
+        Log.Write("update token in Credential Locker differs from " + EnvFilePath + "; leaving both");
     }
 
     static IEnumerable<string> CandidateFiles()
@@ -94,5 +108,20 @@ internal static class GitHubAuth
         File.WriteAllText(path,
             "# Tinycast GitHub token for private Releases. Do not commit this file.\n"
             + GitHubToken.EnvName + "=" + token + "\n");
+        RestrictToCurrentUser(path);
+    }
+
+    static void RestrictToCurrentUser(string path)
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        if (identity.User is null)
+            return;
+        var security = new FileSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new FileSystemAccessRule(
+            identity.User,
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        new FileInfo(path).SetAccessControl(security);
     }
 }

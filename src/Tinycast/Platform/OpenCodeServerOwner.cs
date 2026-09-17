@@ -2,15 +2,11 @@ using Tinycast.Features.Ai;
 
 namespace Tinycast.Platform;
 
-/// <summary>
-/// Owns the lazy local OpenCode server shared by one provider instance.
-/// Mirrors apps/server/src/provider/OpenCodeServerOwner.ts: borrow counting,
-/// 30s idle TTL, drop dead servers. External servers bypass ownership.
-/// Thread-safe via SemaphoreSlim.
-/// </summary>
 public sealed class OpenCodeServerOwner : IDisposable
 {
     readonly SemaphoreSlim _gate = new(1, 1);
+    readonly object _lifetime = new();
+    readonly CancellationTokenSource _shutdown = new();
     readonly string _binaryPath;
     readonly string _directory;
     readonly Func<string?> _passwordProvider;
@@ -18,6 +14,7 @@ public sealed class OpenCodeServerOwner : IDisposable
 
     OpenCodeServerHandle? _server;
     int _borrowers;
+    int _operations;
     CancellationTokenSource? _idleCts;
     bool _disposed;
 
@@ -33,40 +30,72 @@ public sealed class OpenCodeServerOwner : IDisposable
         _environment = environment;
     }
 
-    /// <summary>
-    /// Borrow the shared server for the duration of <paramref name="use"/>.
-    /// Spawns on demand; schedules idle close 30s after the last borrower.
-    /// </summary>
     public async Task<T> WithServerAsync<T>(
         Func<OpenCodeServerHandle, CancellationToken, Task<T>> use,
         string? externalUrl = null,
         CancellationToken token = default)
     {
-        if (!string.IsNullOrWhiteSpace(externalUrl))
-        {
-            var external = await OpenCodeServerManager.ConnectExternalAsync(
-                externalUrl, _passwordProvider(), token);
-            return await use(external, token);
-        }
-
-        var server = await AcquireAsync(token);
+        BeginOperation();
         try
         {
-            return await use(server, token);
+            using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
+            if (!string.IsNullOrWhiteSpace(externalUrl))
+            {
+                var external = await OpenCodeServerManager.ConnectExternalAsync(
+                    externalUrl, _passwordProvider(), acquisition.Token).ConfigureAwait(false);
+                acquisition.Token.ThrowIfCancellationRequested();
+                return await use(external, token).ConfigureAwait(false);
+            }
+
+            var server = await AcquireAsync(acquisition.Token).ConfigureAwait(false);
+            try
+            {
+                acquisition.Token.ThrowIfCancellationRequested();
+                return await use(server, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                Release(server);
+            }
         }
         finally
         {
-            Release(server);
+            EndOperation();
+        }
+    }
+
+    void BeginOperation()
+    {
+        lock (_lifetime)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _operations++;
+        }
+    }
+
+    void EndOperation()
+    {
+        lock (_lifetime)
+        {
+            _operations--;
+            if (!_disposed || _operations != 0)
+                return;
+            _idleCts?.Dispose();
+            _idleCts = null;
+            OpenCodeServerManager.Kill(_server?.Process);
+            _server = null;
+            _gate.Dispose();
+            _shutdown.Dispose();
         }
     }
 
     async Task<OpenCodeServerHandle> AcquireAsync(CancellationToken token)
     {
-        await _gate.WaitAsync(token);
+        await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            token.ThrowIfCancellationRequested();
             _idleCts?.Cancel();
-            _idleCts?.Dispose();
             _idleCts = null;
 
             if (_server is not null)
@@ -76,13 +105,12 @@ public sealed class OpenCodeServerOwner : IDisposable
                     _borrowers++;
                     return _server;
                 }
-
-                CloseLocked(_server);
+                OpenCodeServerManager.Kill(_server.Process);
                 _server = null;
             }
 
             var handle = await OpenCodeServerManager.StartLocalAsync(
-                _binaryPath, _directory, _passwordProvider(), _environment, token);
+                _binaryPath, _directory, _passwordProvider(), _environment, token).ConfigureAwait(false);
             _server = handle;
             _borrowers = 1;
             return handle;
@@ -96,54 +124,67 @@ public sealed class OpenCodeServerOwner : IDisposable
     void Release(OpenCodeServerHandle server)
     {
         _gate.Wait();
-        var disposeGate = false;
         try
         {
             if (!ReferenceEquals(_server, server))
                 return;
-            _borrowers = Math.Max(0, _borrowers - 1);
-            if (_borrowers > 0)
+            _borrowers--;
+            if (_borrowers != 0)
                 return;
-            if (_disposed)
+            lock (_lifetime)
             {
-                if (_server is not null)
+                if (_disposed)
                 {
-                    CloseLocked(_server);
+                    OpenCodeServerManager.Kill(server.Process);
                     _server = null;
+                    return;
                 }
-
-                disposeGate = true;
-                return;
+                _operations++;
             }
             _idleCts?.Cancel();
-            _idleCts?.Dispose();
-            _idleCts = new CancellationTokenSource();
-            var idleToken = _idleCts.Token;
-            _ = Task.Delay(OpenCodeConstants.ServerIdleTtl, idleToken).ContinueWith(t =>
-            {
-                if (t.IsCanceled || _disposed)
-                    return;
-                try { _gate.Wait(); }
-                catch (ObjectDisposedException) { return; }
-                try
-                {
-                    if (_disposed || !ReferenceEquals(_server, server) || _borrowers > 0)
-                        return;
-                    CloseLocked(server);
-                    _server = null;
-                }
-                finally
-                {
-                    try { _gate.Release(); } catch (ObjectDisposedException) { }
-                }
-            }, TaskScheduler.Default);
+            _idleCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            _ = CloseAfterIdleAsync(server, _idleCts);
         }
         finally
         {
-            try { _gate.Release(); } catch (ObjectDisposedException) { }
-            if (disposeGate)
+            _gate.Release();
+        }
+    }
+
+    async Task CloseAfterIdleAsync(OpenCodeServerHandle server, CancellationTokenSource idle)
+    {
+        try
+        {
+            await Task.Delay(OpenCodeConstants.ServerIdleTtl, idle.Token).ConfigureAwait(false);
+            await _gate.WaitAsync(idle.Token).ConfigureAwait(false);
+            try
             {
-                try { _gate.Dispose(); } catch (ObjectDisposedException) { }
+                if (!idle.IsCancellationRequested && ReferenceEquals(_idleCts, idle)
+                    && ReferenceEquals(_server, server) && _borrowers == 0)
+                {
+                    OpenCodeServerManager.Kill(server.Process);
+                    _server = null;
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (ReferenceEquals(_idleCts, idle))
+                    _idleCts = null;
+                idle.Dispose();
+            }
+            finally
+            {
+                _gate.Release();
+                EndOperation();
             }
         }
     }
@@ -154,45 +195,28 @@ public sealed class OpenCodeServerOwner : IDisposable
         {
             return handle.Process is not null && !handle.Process.HasExited;
         }
-        catch (Exception)
+        catch (InvalidOperationException)
         {
             return false;
         }
     }
 
-    static void CloseLocked(OpenCodeServerHandle handle)
-    {
-        if (!handle.External)
-            OpenCodeServerManager.Kill(handle.Process);
-        else
-            handle.Process?.Dispose();
-    }
-
     public void Dispose()
     {
-        if (_disposed)
-            return;
-        _disposed = true;
-        _idleCts?.Cancel();
-        try { _gate.Wait(TimeSpan.FromSeconds(2)); }
-        catch (ObjectDisposedException) { return; }
+        lock (_lifetime)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _operations++;
+        }
         try
         {
-            _idleCts?.Dispose();
-            _idleCts = null;
-            if (_borrowers > 0)
-                return;
-            if (_server is not null)
-            {
-                CloseLocked(_server);
-                _server = null;
-            }
+            _shutdown.Cancel();
         }
         finally
         {
-            try { _gate.Release(); } catch (ObjectDisposedException) { }
-            if (_borrowers == 0)
-                _gate.Dispose();
+            EndOperation();
         }
     }
 }

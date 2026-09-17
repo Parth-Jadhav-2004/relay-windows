@@ -56,11 +56,16 @@ public static class ClipboardListFilterLogic
         var t = text.Trim();
         if (t.Contains('\n') || t.Contains('\r'))
             return false;
-        if (t.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || t.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
-            return true;
-        return Uri.TryCreate(t, UriKind.Absolute, out var uri)
-            && uri.Scheme is "http" or "https" or "mailto";
+        if (!Uri.TryCreate(t, UriKind.Absolute, out var uri))
+            return false;
+        if (uri.Scheme is "http" or "https")
+            return !string.IsNullOrEmpty(uri.Host);
+        if (uri.Scheme == "mailto")
+        {
+            var path = uri.AbsolutePath.TrimStart('/');
+            return !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(path);
+        }
+
+        return false;
     }
 }

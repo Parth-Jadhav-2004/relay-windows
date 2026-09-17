@@ -33,9 +33,33 @@ public sealed record CalcResult(string Expression, string Display, string CopyTe
 public static class CalcEngine
 {
     public static CalcResult? Evaluate(string raw, DateTime now, CurrencyRates? rates = null, string? region = null) =>
-        Evaluate(raw, new CalcContext(now, TimeZoneInfo.Local, CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek, rates, region));
+        Evaluate(raw, new CalcContext(now, TimeZoneInfo.Local, DayOfWeek.Sunday, rates, region));
 
     public static CalcResult? Evaluate(string raw, CalcContext context)
+    {
+        try
+        {
+            return EvaluateCore(raw, context);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    static CalcResult? EvaluateCore(string raw, CalcContext context)
     {
         var query = raw.Trim();
         if (query.Length is 0 or > 256)
@@ -333,15 +357,29 @@ public static class CalcEngine
 
         if (value.CurrencyCode is "hex" or "bin" or "oct" or "decimal" or "binary" or "octal" or "hexadecimal" or "dec")
         {
-            var n = (long)Math.Round(value.Kind == CalcValueKind.Quantity ? CalcUnits.ToBase(value.Amount, value.Unit!) : value.Scalar);
-            var (display, badge) = value.CurrencyCode[0] switch
+            var scalar = value.Kind == CalcValueKind.Quantity && value.Unit is not null
+                ? CalcUnits.ToBase(value.Amount, value.Unit)
+                : value.Scalar;
+            if (CalcMath.ExactInteger(scalar) is not { } n)
+            {
+                var badge = value.CurrencyCode[0] switch
+                {
+                    'h' => "Hexadecimal",
+                    'b' => "Binary",
+                    'o' => "Octal",
+                    _ => "Decimal",
+                };
+                return new CalcResult(expression, "Cannot convert", "", source ?? "Decimal", badge, true);
+            }
+
+            var (display, name) = value.CurrencyCode[0] switch
             {
                 'h' => ("0x" + n.ToString("X", CultureInfo.InvariantCulture), "Hexadecimal"),
                 'b' => ("0b" + Convert.ToString(n, 2), "Binary"),
                 'o' => ("0o" + Convert.ToString(n, 8), "Octal"),
                 _ => (n.ToString(CultureInfo.InvariantCulture), "Decimal"),
             };
-            return new CalcResult(expression, display, display, source ?? "Decimal", badge, false);
+            return new CalcResult(expression, display, display, source ?? "Decimal", name, false);
         }
 
         if (value.Unit?.Symbol == "timespan")
