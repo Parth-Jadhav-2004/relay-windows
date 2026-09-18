@@ -1,67 +1,70 @@
 # Relay for Windows
 
-A native Windows 11 tray launcher: command palette, global hotkeys, clipboard history,
-calculator, file search, snippets, window management. **WinUI 3 + .NET 9**, unpackaged. AGPL-3.0.
+A native Windows 11 command palette and productivity launcher. Relay lives in the system tray — no taskbar button — and opens with a global hotkey whenever you need to find an app, run a command, or reach a feature.
 
-This is a from-scratch rewrite of the original macOS launcher.
-It copies architecture, UX, and invariants — not Swift, not Electron, not PowerToys.
+Built with **WinUI 3** and **.NET 9**. Unpackaged, Microsoft packages only. Targets current Windows 11.
 
-## Run
+## Getting started
 
 ```powershell
 dotnet run --project src\Relay\Relay.csproj -p:Platform=x64
 ```
 
-Alt+Space opens the palette. The tray icon is in the notification area (you may need to show hidden icons). Right-click it for Settings or Quit.
+Press **Alt+Space** to open the palette. Right-click the tray icon for Settings or Quit.
 
-Isolated settings live in `%APPDATA%\Relay\com.relay.windows.dev\` for Debug builds, and
-`%APPDATA%\Relay\com.relay.windows\` for Release.
+## Features
 
-## Updates
+### Command palette
 
-Release builds check [GitHub Releases](https://github.com/Parth-Jadhav-2004/relay-windows/releases)
-for `Relay-windows-x64.zip` about 30 seconds after launch, and whenever you click
-**Check for updates** in Settings → About (or the palette command). That button becomes
-**Download and restart** when a newer tag is ready — there is no extra confirm window.
+- Fuzzy search across apps, settings, commands, and built-in actions
+- Inline calculator with unit, currency, timezone, and color conversions
+- Keyboard-first navigation with a compact, translucent palette window
 
-The repo is private, so the GitHub API needs a token with `repo` scope. Put it in
-`RELAY_GITHUB_TOKEN` or in `%APPDATA%\Relay\com.relay.windows\.env`:
+### Launcher
 
-```
-RELAY_GITHUB_TOKEN=ghp_your_token
-```
+- Application search with aliases, favorites, and usage-based ranking
+- Shortcuts to Windows Settings pages
+- System actions — lock, sleep, restart, volume, show desktop, and more
+- Custom shell commands with captured output
+- Quicklinks for URLs, searches, and clipboard-driven workflows
+- Configurable fallbacks when no direct match is found
 
-See `.env.example`. The token is never shown in Settings and is never backed up.
+### Productivity
 
-Publish a build:
+- **Clipboard history** — browse, pin, filter, and preview past copies; optional OCR on images
+- **Snippets** — keyword expansion with templates, arguments, and frontmatter
+- **Notes** — markdown notes with search and a floating editor
+- **File search** — fast indexed search across configured folders and drives
+- **Emoji & symbols** — searchable grid with skin tones and pinning
 
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
+### Window & navigation
 
-The Release workflow publishes a self-contained zip. Dev (`DEBUG`) builds do not install those zips.
+- **Window management** — 35 tiling actions (halves, thirds, quarters, maximize, center, move between displays, and more)
+- **Window layouts** — save and restore multi-window arrangements
+- **Navigation** — window switcher and in-app menu search for the focused application
 
-## Tests
+### AI & automation
 
-```powershell
-.\scripts\run-tests.ps1
-```
+- **AI chat** — conversational assistant with configurable models and MCP server support
+- **Quick actions** — run actions on selected text (grammar, translation, and custom prompts)
 
-The harness compiles and asserts the pure Core models. `Relay.Core` must not import WinUI or P/Invoke.
+### Calendar
 
-## Layout
+- Upcoming meetings with join links and optional auto-join
 
-| Path | Holds |
-| --- | --- |
-| `src/Relay.Core` | Pure models. No WinUI, no Win32. |
-| `src/Relay` | AppCore, tray, palette, Settings, Dialog/HUD, Win32 shims |
-| `tests/Relay.Harness` | Standalone harness (no XCTest equivalent) |
-| `docs/` | Windows architecture + UI deltas |
-| `prototype/` | Throwaway HTML look-dev |
+### Hotkeys
 
-`reference/` is a local clone of the macOS spec repo. It is gitignored; do not paste Swift from it.
+- Global palette chord (default Alt+Space)
+- Per-app and global hotkeys for any Relay command or action
+- Double-tap and Hyper key modifiers
+
+### Settings & data
+
+- Full settings UI organized by General, Launcher, Features, and Advanced
+- Settings backup and restore with selective categories
+- First-launch onboarding wizard
+- Light, dark, and system appearance
 
 ## License
 
-GNU Affero General Public License v3.0. See `LICENSE` and `NOTICE`.
+GNU Affero General Public License v3.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
